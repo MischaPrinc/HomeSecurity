@@ -708,7 +708,7 @@ function Set-StickyKeysState {
     try {
         if ($Secured) {
             if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
-            Set-ItemProperty -Path $regPath -Name "Debugger" -Value "C:\Windows\System32\cmd.exe" -Type SZ -ErrorAction Stop
+            Set-ItemProperty -Path $regPath -Name "Debugger" -Value "C:\Windows\System32\cmd.exe" -Type String -ErrorAction Stop
             Write-Host "  Zneuziti 'Sticky Keys' (sethc.exe): Zabezpeceno" -ForegroundColor Green
         } else {
             if (Test-Path $regPath) { Remove-ItemProperty -Path $regPath -Name "Debugger" -ErrorAction SilentlyContinue }
