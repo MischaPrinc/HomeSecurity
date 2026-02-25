@@ -72,8 +72,7 @@ function Write-MenuItem {
 
 function Pause-Menu {
     Write-Host ""
-    Write-Host "  Stisknete libovolnou klavesu pro navrat..." -ForegroundColor DarkGray
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    Read-Host "  Stisknete Enter pro navrat do menu"
 }
 
 function Show-Banner {
@@ -158,7 +157,6 @@ function Show-ASRDetail {
         Write-Host "  [$modeText]" -ForegroundColor $color -NoNewline
         Write-Host " $($ASR_RULES[$guid])" -ForegroundColor White
     }
-    Pause-Menu
 }
 
 function Set-AllASR {
@@ -962,7 +960,6 @@ function Show-FullStatus {
     $v = Get-SysmonStatus;            Write-Status "Sysmon"                      $v (Get-StatusColor $v)
 
     Write-Host ""
-    Pause-Menu
 }
 
 # ==============================================================================
@@ -1002,7 +999,6 @@ function Enable-MaxSecurity {
         Write-Host "  DOPORUCENI: Nezapomente zapnout sifrovani disku BitLocker!" -ForegroundColor Yellow
         Show-BitLockerHelp
     }
-    Pause-Menu
 }
 
 # ==============================================================================
@@ -1056,25 +1052,23 @@ function Show-Menu-DefenderASR {
 
         $c = Read-Host "  Vyberte volbu"
         switch ($c) {
-            "1"  { Show-ASRDetail }
-            "2"  { Set-AllASR -Mode 1 }
-            "3"  { Set-AllASR -Mode 2 }
-            "4"  { Set-AllASR -Mode 0 }
-            "5"  { Set-PUA -Mode 1 }
-            "6"  { Set-PUA -Mode 2 }
-            "7"  { Set-PUA -Mode 0 }
-            "8"  { Set-DefenderRT -Enabled $true }
-            "9"  { Set-DefenderRT -Enabled $false }
-            "10" { Set-CFA -Mode 1 }
-            "11" { Set-CFA -Mode 2 }
-            "12" { Set-CFA -Mode 0 }
-            "13" { Set-TamperProtection -Enabled $true }
-            "14" { Set-TamperProtection -Enabled $false }
-            "M" { return $true }
-            default { return $false }
+            "1"  { Show-ASRDetail; Pause-Menu }
+            "2"  { Set-AllASR -Mode 1; Pause-Menu }
+            "3"  { Set-AllASR -Mode 2; Pause-Menu }
+            "4"  { Set-AllASR -Mode 0; Pause-Menu }
+            "5"  { Set-PUA -Mode 1; Pause-Menu }
+            "6"  { Set-PUA -Mode 2; Pause-Menu }
+            "7"  { Set-PUA -Mode 0; Pause-Menu }
+            "8"  { Set-DefenderRT -Enabled $true; Pause-Menu }
+            "9"  { Set-DefenderRT -Enabled $false; Pause-Menu }
+            "10" { Set-CFA -Mode 1; Pause-Menu }
+            "11" { Set-CFA -Mode 2; Pause-Menu }
+            "12" { Set-CFA -Mode 0; Pause-Menu }
+            "13" { Set-TamperProtection -Enabled $true; Pause-Menu }
+            "14" { Set-TamperProtection -Enabled $false; Pause-Menu }
+            "0"  { return }
+            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
         }
-        Pause-Menu
-        return $false
     } while ($true)
 }
 
@@ -1105,16 +1099,13 @@ function Show-Menu-SmartScreen {
 
         $c = Read-Host "  Vyberte volbu"
         switch ($c) {
-            "1" { Set-SmartScreen -Mode "RequireAdmin" }
-            "2" { Set-SmartScreen -Mode "Prompt" }
-            "3" { Set-SmartScreen -Mode "Off" }
-            "4" { Set-EdgeSmartScreen -Enabled $true }
-            "5" { Set-EdgeSmartScreen -Enabled $false }
-            "M" { return $true }
-            default { return $false }
+            "1" { Set-SmartScreen -Mode "RequireAdmin"; Pause-Menu }
+            "2" { Set-SmartScreen -Mode "Off"; Pause-Menu }
+            "3" { Set-EdgeSmartScreen -Enabled $true; Pause-Menu }
+            "4" { Set-EdgeSmartScreen -Enabled $false; Pause-Menu }
+            "0" { return }
+            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
         }
-        Pause-Menu
-        return $false
     } while ($true)
 }
 
@@ -1155,19 +1146,17 @@ function Show-Menu-Network {
 
         $c = Read-Host "  Vyberte volbu"
         switch ($c) {
-            "1" { Set-FirewallState -Enabled $true }
-            "2" { Set-FirewallState -Enabled $false }
-            "3" { Set-RDPState -Disabled $true }
-            "4" { Set-RDPState -Disabled $false }
-            "5" { Set-SMBv1State -Enabled $false }
-            "6" { Set-SMBv1State -Enabled $true }
-            "7" { Set-LLMNRState -Disabled $true }
-            "8" { Set-LLMNRState -Disabled $false }
-            "M" { return $true }
-            default { return $false }
+            "1" { Set-FirewallState -Enabled $true; Pause-Menu }
+            "2" { Set-FirewallState -Enabled $false; Pause-Menu }
+            "3" { Set-RDPState -Disabled $true; Pause-Menu }
+            "4" { Set-RDPState -Disabled $false; Pause-Menu }
+            "5" { Set-SMBv1State -Enabled $false; Pause-Menu }
+            "6" { Set-SMBv1State -Enabled $true; Pause-Menu }
+            "7" { Set-LLMNRState -Disabled $true; Pause-Menu }
+            "8" { Set-LLMNRState -Disabled $false; Pause-Menu }
+            "0" { return }
+            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
         }
-        Pause-Menu
-        return $false
     } while ($true)
 }
 
@@ -1199,15 +1188,13 @@ function Show-Menu-System {
 
         $c = Read-Host "  Vyberte volbu"
         switch ($c) {
-            "1" { Set-AutoRunState -Disabled $true }
-            "2" { Set-AutoRunState -Disabled $false }
-            "3" { Set-PSLogging -Enabled $true }
-            "4" { Set-PSLogging -Enabled $false }
-            "M" { return $true }
-            default { return $false }
+            "1" { Set-AutoRunState -Disabled $true; Pause-Menu }
+            "2" { Set-AutoRunState -Disabled $false; Pause-Menu }
+            "3" { Set-PSLogging -Enabled $true; Pause-Menu }
+            "4" { Set-PSLogging -Enabled $false; Pause-Menu }
+            "0" { return }
+            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
         }
-        Pause-Menu
-        return $false
     } while ($true)
 }
 
@@ -1238,15 +1225,13 @@ function Show-Menu-Sysmon {
 
         $c = Read-Host "  Vyberte volbu"
         switch ($c) {
-            "1" { Install-Sysmon }
-            "2" { Update-SysmonConfig }
-            "3" { Use-CustomSysmonConfig }
-            "4" { Uninstall-Sysmon }
-            "M" { return $true }
-            default { return $false }
+            "1" { Install-Sysmon; Pause-Menu }
+            "2" { Update-SysmonConfig; Pause-Menu }
+            "3" { Use-CustomSysmonConfig; Pause-Menu }
+            "4" { Uninstall-Sysmon; Pause-Menu }
+            "0" { return }
+            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
         }
-        Pause-Menu
-        return $false
     } while ($true)
 }
 
@@ -1280,16 +1265,14 @@ function Show-Menu-DNS {
 
         $c = Read-Host "  Vyberte volbu"
         switch ($c) {
-            "1" { Show-DNSDetail }
-            "2" { Set-SecureDNS -ProfileKey "cloudflare_malware" }
-            "3" { Set-SecureDNS -ProfileKey "cloudflare_family" }
-            "4" { Set-SecureDNS -ProfileKey "cloudflare_standard" }
-            "5" { Reset-DNS }
-            "M" { return $true }
-            default { return $false }
+            "1" { Show-DNSDetail; Pause-Menu }
+            "2" { Set-SecureDNS -ProfileKey "cloudflare_malware"; Pause-Menu }
+            "3" { Set-SecureDNS -ProfileKey "cloudflare_family"; Pause-Menu }
+            "4" { Set-SecureDNS -ProfileKey "cloudflare_standard"; Pause-Menu }
+            "5" { Reset-DNS; Pause-Menu }
+            "0" { return }
+            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
         }
-        Pause-Menu
-        return $false
     } while ($true)
 }
 
@@ -1324,22 +1307,21 @@ function Show-Menu-Hardening {
 
         $c = Read-Host "  Vyberte volbu"
         switch ($c) {
-            "1" { Set-LMHashState -Disabled $true }
-            "2" { Show-BitLockerHelp }
-            "3" { Set-StickyKeysState -Secured $true }
-            "4" { Set-StickyKeysState -Secured $false }
-            "M" { return $true }
-            default { return $false }
+            "1" { Set-LMHashState -Disabled $true; Pause-Menu }
+            "2" { Set-LMHashState -Disabled $false; Pause-Menu }
+            "3" { Set-StickyKeysState -Secured $true; Pause-Menu }
+            "4" { Set-StickyKeysState -Secured $false; Pause-Menu }
+            "5" { Show-BitLockerHelp; Pause-Menu }
+            "0" { return }
+            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
         }
-        Pause-Menu
-        return $false
     } while ($true)
 }
 
 # ==============================================================================
-#                   H L A V N I   M E N U
+#                       H L A V N I   M E N U
 # ==============================================================================
-function Menu-Main {
+do {
     Show-Banner
     Write-Host ""
     Write-Host "  +------------------------------------------------------------+" -ForegroundColor DarkGray
@@ -1393,6 +1375,12 @@ function Menu-Main {
     Write-Host "]" -ForegroundColor DarkGray
     Write-Host ""
 
+    Write-Host "    5)  Sysmon" -ForegroundColor White -NoNewline
+    Write-Host "                    [" -NoNewline -ForegroundColor DarkGray
+    Write-Host "$syQ" -NoNewline -ForegroundColor $syC
+    Write-Host "]" -ForegroundColor DarkGray
+    Write-Host ""
+
     $dnsC = if ($dnsQ -match "1\.1\.1\.[23]") { 'Green' } elseif ($dnsQ -match "DHCP|auto") { 'Yellow' } else { 'Cyan' }
     Write-Host "    6)  Bezpecne DNS" -ForegroundColor White -NoNewline
     Write-Host "               [" -NoNewline -ForegroundColor DarkGray
@@ -1415,26 +1403,23 @@ function Menu-Main {
     $mainChoice = Read-Host "  Vyberte volbu"
 
     switch ($mainChoice) {
-        "1"  { while (-not (Menu-Defender)) {} }
-        "2"  { while (-not (Menu-SmartScreen)) {} }
-        "3"  { while (-not (Menu-Network)) {} }
-        "4"  { while (-not (Menu-System)) {} }
-        "5"  { while (-not (Menu-DNS)) {} }
-        "6"  { while (-not (Menu-Sysmon)) {} }
-        "7"  { while (-not (Menu-Other)) {} }
+        "1"  { Show-Menu-DefenderASR }
+        "2"  { Show-Menu-SmartScreen }
+        "3"  { Show-Menu-Network }
+        "4"  { Show-Menu-System }
+        "5"  { Show-Menu-Sysmon }
+        "6"  { Show-Menu-DNS }
+        "7"  { Show-Menu-Hardening }
         "10" { Enable-MaxSecurity; Pause-Menu }
         "99" { Show-FullStatus; Pause-Menu }
-        "X" { $exit = $true }
+        "0"  {
+            Write-Host ""
+            Write-Host "  Ukoncuji. Zustan v bezpeci! - Hack3r.cz" -ForegroundColor Cyan
+            Write-Host ""
+        }
+        default {
+            Write-Host "  Neplatna volba, zkuste znovu." -ForegroundColor Red
+            Start-Sleep -Seconds 1
+        }
     }
-}
-
-# ==============================================================================
-#                         S P U S T E N I
-# ==============================================================================
-$exit = $false
-while (-not $exit) {
-    Menu-Main
-}
-Write-Host ""
-Write-Host "  Skript ukoncen." -ForegroundColor Green
-Write-Host ""
+} while ($mainChoice -ne "0")
