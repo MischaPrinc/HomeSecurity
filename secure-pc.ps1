@@ -158,6 +158,7 @@ function Show-ASRDetail {
         Write-Host "  [$modeText]" -ForegroundColor $color -NoNewline
         Write-Host " $($ASR_RULES[$guid])" -ForegroundColor White
     }
+    Pause-Menu
 }
 
 function Set-AllASR {
