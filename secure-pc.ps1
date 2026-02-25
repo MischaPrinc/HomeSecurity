@@ -961,6 +961,7 @@ function Show-FullStatus {
     $v = Get-SysmonStatus;            Write-Status "Sysmon"                      $v (Get-StatusColor $v)
 
     Write-Host ""
+    Pause-Menu
 }
 
 # ==============================================================================
@@ -1000,6 +1001,7 @@ function Enable-MaxSecurity {
         Write-Host "  DOPORUCENI: Nezapomente zapnout sifrovani disku BitLocker!" -ForegroundColor Yellow
         Show-BitLockerHelp
     }
+    Pause-Menu
 }
 
 # ==============================================================================
@@ -1101,12 +1103,13 @@ function Show-Menu-SmartScreen {
         $c = Read-Host "  Vyberte volbu"
         switch ($c) {
             "1" { Set-SmartScreen -Mode "RequireAdmin"; Pause-Menu }
-            "2" { Set-SmartScreen -Mode "Off"; Pause-Menu }
-            "3" { Set-EdgeSmartScreen -Enabled $true; Pause-Menu }
-            "4" { Set-EdgeSmartScreen -Enabled $false; Pause-Menu }
-            "0" { return }
-            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
+            "2" { Set-SmartScreen -Mode "Prompt"; Pause-Menu }
+            "3" { Set-SmartScreen -Mode "Off"; Pause-Menu }
+            "4" { Set-EdgeSmartScreen -Enabled $true; Pause-Menu }
+            "5" { Set-EdgeSmartScreen -Enabled $false; Pause-Menu }
+            "M" { return $true }
         }
+        return $false
     } while ($true)
 }
 
@@ -1155,9 +1158,9 @@ function Show-Menu-Network {
             "6" { Set-SMBv1State -Enabled $true; Pause-Menu }
             "7" { Set-LLMNRState -Disabled $true; Pause-Menu }
             "8" { Set-LLMNRState -Disabled $false; Pause-Menu }
-            "0" { return }
-            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
+            "M" { return $true }
         }
+        return $false
     } while ($true)
 }
 
@@ -1193,9 +1196,9 @@ function Show-Menu-System {
             "2" { Set-AutoRunState -Disabled $false; Pause-Menu }
             "3" { Set-PSLogging -Enabled $true; Pause-Menu }
             "4" { Set-PSLogging -Enabled $false; Pause-Menu }
-            "0" { return }
-            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
+            "M" { return $true }
         }
+        return $false
     } while ($true)
 }
 
@@ -1230,9 +1233,9 @@ function Show-Menu-Sysmon {
             "2" { Update-SysmonConfig; Pause-Menu }
             "3" { Use-CustomSysmonConfig; Pause-Menu }
             "4" { Uninstall-Sysmon; Pause-Menu }
-            "0" { return }
-            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
+            "M" { return $true }
         }
+        return $false
     } while ($true)
 }
 
@@ -1271,9 +1274,9 @@ function Show-Menu-DNS {
             "3" { Set-SecureDNS -ProfileKey "cloudflare_family"; Pause-Menu }
             "4" { Set-SecureDNS -ProfileKey "cloudflare_standard"; Pause-Menu }
             "5" { Reset-DNS; Pause-Menu }
-            "0" { return }
-            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
+            "M" { return $true }
         }
+        return $false
     } while ($true)
 }
 
@@ -1309,13 +1312,12 @@ function Show-Menu-Hardening {
         $c = Read-Host "  Vyberte volbu"
         switch ($c) {
             "1" { Set-LMHashState -Disabled $true; Pause-Menu }
-            "2" { Set-LMHashState -Disabled $false; Pause-Menu }
+            "2" { Show-BitLockerHelp; Pause-Menu }
             "3" { Set-StickyKeysState -Secured $true; Pause-Menu }
             "4" { Set-StickyKeysState -Secured $false; Pause-Menu }
-            "5" { Show-BitLockerHelp; Pause-Menu }
-            "0" { return }
-            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
+            "M" { return $true }
         }
+        return $false
     } while ($true)
 }
 
@@ -1411,8 +1413,8 @@ do {
         "5"  { Show-Menu-Sysmon }
         "6"  { Show-Menu-DNS }
         "7"  { Show-Menu-Hardening }
-        "10" { Enable-MaxSecurity; Pause-Menu }
-        "99" { Show-FullStatus; Pause-Menu }
+        "10" { Enable-MaxSecurity }
+        "99" { Show-FullStatus }
         "0"  {
             Write-Host ""
             Write-Host "  Ukoncuji. Zustan v bezpeci! - Hack3r.cz" -ForegroundColor Cyan
