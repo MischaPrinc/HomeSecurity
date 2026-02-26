@@ -3,7 +3,7 @@
 
 Tento repozitář obsahuje sadu interaktivních PowerShell skriptů pro pokročilé zabezpečení a hardening pracovních stanic s operačním systémem Windows 10 a 11. Skripty jsou navrženy tak, aby byly snadno použitelné i pro uživatele bez hlubokých znalostí PowerShellu, a to díky přehlednému menu.
 
-**Autor:** Hack3r.cz
+**Autor:** Mischa Princ
 
 > **Důležité:** Všechny skripty musí být spuštěny s administrátorskými oprávněními.
 
