@@ -1081,27 +1081,27 @@ function Show-Menu-DefenderASR {
         Write-Host ""
 
         Write-MenuItem "1"  "ASR pravidla -> Zobrazit detail vsech pravidel"
-        Write-MenuItem "2"  "ASR pravidla -> Nastavit VSECHNA na BLOKOVAT [DOPORUČENO]" Green
+        Write-MenuItem "2"  "ASR pravidla -> Nastavit VSECHNA na BLOKOVAT [DOPORUCENO]" Green
         Write-MenuItem "3"  "ASR pravidla -> Nastavit VSECHNA na AUDIT"
         Write-MenuItem "4"  "ASR pravidla -> VYPNOUT VSECHNA"
         Write-Host ""
-        Write-MenuItem "5"  "PUA ochrana -> BLOKOVAT [DOPORUČENO]" Green
+        Write-MenuItem "5"  "PUA ochrana -> BLOKOVAT [DOPORUCENO]" Green
         Write-MenuItem "6"  "PUA ochrana -> AUDIT"
         Write-MenuItem "7"  "PUA ochrana -> VYPNOUT"
         Write-Host ""
-        Write-MenuItem "8"  "Defender Real-Time + Cloud -> ZAPNOUT [DOPORUČENO]" Green
+        Write-MenuItem "8"  "Defender Real-Time + Cloud -> ZAPNOUT [DOPORUCENO]" Green
         Write-MenuItem "9"  "Defender Real-Time -> VYPNOUT"
         Write-Host ""
-        Write-MenuItem "10" "Controlled Folder Access -> ZAPNOUT [DOPORUČENO]" Green
+        Write-MenuItem "10" "Controlled Folder Access -> ZAPNOUT [DOPORUCENO]" Green
         Write-MenuItem "11" "Controlled Folder Access -> AUDIT"
         Write-MenuItem "12" "Controlled Folder Access -> VYPNOUT"
         Write-Host ""
-        Write-MenuItem "13" "Tamper Protection -> ZAPNOUT [DOPORUČENO]" Green
+        Write-MenuItem "13" "Tamper Protection -> ZAPNOUT [DOPORUCENO]" Green
         Write-MenuItem "14" "Tamper Protection -> VYPNOUT"
         Write-Host ""
-        Write-MenuItem "15" "Nastavit registry pro zabezpeceni Office [DOPORUČENO]" Green
-        Write-MenuItem "16" "Nastavit Defender sandboxing (zapnout) [DOPORUČENO]" Green
-        Write-MenuItem "17" "Aktualizovat Defender signatury [DOPORUČENO]" Green
+        Write-MenuItem "15" "Nastavit registry pro zabezpeceni Office [DOPORUCENO]" Green
+        Write-MenuItem "16" "Nastavit Defender sandboxing (zapnout) [DOPORUCENO]" Green
+        Write-MenuItem "17" "Aktualizovat Defender signatury [DOPORUCENO]" Green
         Write-Host ""
         Write-MenuItem "0"  "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
@@ -1147,10 +1147,10 @@ function Show-Menu-SmartScreen {
         Write-Host "    Windows: $ssSt | Edge: $esSt" -ForegroundColor DarkGray
         Write-Host ""
 
-        Write-MenuItem "1" "SmartScreen (Windows) -> ZAPNOUT [DOPORUČENO]" Green
+        Write-MenuItem "1" "SmartScreen (Windows) -> ZAPNOUT [DOPORUCENO]" Green
         Write-MenuItem "2" "SmartScreen (Windows) -> VYPNOUT"
         Write-Host ""
-        Write-MenuItem "3" "SmartScreen (Edge) -> ZAPNOUT [DOPORUČENO]" Green
+        Write-MenuItem "3" "SmartScreen (Edge) -> ZAPNOUT [DOPORUCENO]" Green
         Write-MenuItem "4" "SmartScreen (Edge) -> VYPNOUT"
         Write-Host ""
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
@@ -1188,16 +1188,16 @@ function Show-Menu-Network {
         Write-Host "    RDP: $rdpSt | SMBv1: $smbSt | LLMNR: $llmnrSt" -ForegroundColor DarkGray
         Write-Host ""
 
-        Write-MenuItem "1" "Windows Firewall -> ZAPNOUT [DOPORUČENO]" Green
+        Write-MenuItem "1" "Windows Firewall -> ZAPNOUT [DOPORUCENO]" Green
         Write-MenuItem "2" "Windows Firewall -> VYPNOUT"
         Write-Host ""
-        Write-MenuItem "3" "Vzdalena plocha (RDP) -> ZAKAZAT [DOPORUČENO]" Green
+        Write-MenuItem "3" "Vzdalena plocha (RDP) -> ZAKAZAT [DOPORUCENO]" Green
         Write-MenuItem "4" "Vzdalena plocha (RDP) -> POVOLIT"
         Write-Host ""
-        Write-MenuItem "5" "SMBv1 -> ZAKAZAT [DOPORUČENO]" Green
+        Write-MenuItem "5" "SMBv1 -> ZAKAZAT [DOPORUCENO]" Green
         Write-MenuItem "6" "SMBv1 -> POVOLIT"
         Write-Host ""
-        Write-MenuItem "7" "LLMNR -> ZAKAZAT [DOPORUČENO]" Green
+        Write-MenuItem "7" "LLMNR -> ZAKAZAT [DOPORUCENO]" Green
         Write-MenuItem "8" "LLMNR -> POVOLIT"
         Write-Host ""
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
@@ -1236,10 +1236,10 @@ function Show-Menu-System {
         Write-Host "    AutoRun: $arSt | PS Logging: $psSt" -ForegroundColor DarkGray
         Write-Host ""
 
-        Write-MenuItem "1" "AutoRun/AutoPlay -> ZAKAZAT [DOPORUČENO]" Green
+        Write-MenuItem "1" "AutoRun/AutoPlay -> ZAKAZAT [DOPORUCENO]" Green
         Write-MenuItem "2" "AutoRun/AutoPlay -> POVOLIT"
         Write-Host ""
-        Write-MenuItem "3" "PS Script Block Logging -> ZAPNOUT [DOPORUČENO]" Green
+        Write-MenuItem "3" "PS Script Block Logging -> ZAPNOUT [DOPORUCENO]" Green
         Write-MenuItem "4" "PS Script Block Logging -> VYPNOUT"
         Write-Host ""
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
@@ -1313,8 +1313,8 @@ function Show-Menu-DNS {
         Write-MenuItem "1" "Zobrazit detail DNS na vsech adapterech"
         Write-Host ""
         Write-Host "    Nastavit DNS profil:" -ForegroundColor Cyan
-        Write-MenuItem "2" "Cloudflare 1.1.1.2 / 1.0.0.2 - Blokace malware [DOPORUČENO]" Green
-        Write-MenuItem "3" "Cloudflare 1.1.1.3 / 1.0.0.3 - Blokace malware + dospely obsah [DOPORUČENO]" Green
+        Write-MenuItem "2" "Cloudflare 1.1.1.2 / 1.0.0.2 - Blokace malware [DOPORUCENO]" Green
+        Write-MenuItem "3" "Cloudflare 1.1.1.3 / 1.0.0.3 - Blokace malware + dospely obsah [DOPORUCENO]" Green
         Write-MenuItem "4" "Cloudflare 1.1.1.1 / 1.0.0.1 - Standardni (bez filtrace)"
         Write-Host ""
         Write-MenuItem "5" "Resetovat DNS na automaticke (DHCP)" Yellow
@@ -1353,10 +1353,10 @@ function Show-Menu-Hardening {
         Write-Host "    LM Hash: $lmSt | Sticky Keys: $skSt | BitLocker: $blSt" -ForegroundColor DarkGray
         Write-Host ""
 
-        Write-MenuItem "1" "Zakazat ukladani LM hashe [DOPORUČENO]" Green
+        Write-MenuItem "1" "Zakazat ukladani LM hashe [DOPORUCENO]" Green
         Write-MenuItem "2" "Povolit ukladani LM hashe"
         Write-Host ""
-        Write-MenuItem "3" "Zabezpecit zneuziti Sticky Keys [DOPORUČENO]" Green
+        Write-MenuItem "3" "Zabezpecit zneuziti Sticky Keys [DOPORUCENO]" Green
         Write-MenuItem "4" "Obnovit vychozi chovani Sticky Keys"
         Write-Host ""
         Write-MenuItem "5" "Zobrazit stav a navod pro BitLocker"
