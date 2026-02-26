@@ -991,6 +991,12 @@ function Enable-MaxSecurity {
     Set-SecureDNS -ProfileKey "cloudflare_malware"
     Set-LMHashState -Disabled $true
     Set-StickyKeysState -Secured $true
+    # Nové: Office registry
+    Set-OfficeSecurityRegistry
+    # Nové: Defender sandboxing
+    Set-DefenderSandboxing -Enabled $true
+    # Nové: Update Defender signatur
+    Update-DefenderSignatures
     Write-Host ""
     Write-Host "  *** Vse nastaveno na maximalni ochranu! ***" -ForegroundColor Green
     Write-Host ""
@@ -998,6 +1004,52 @@ function Enable-MaxSecurity {
     if ($blSt -notmatch "Zapnuto") {
         Write-Host "  DOPORUCENI: Nezapomente zapnout sifrovani disku BitLocker!" -ForegroundColor Yellow
         Show-BitLockerHelp
+    }
+}
+function Set-OfficeSecurityRegistry {
+    Write-Host "  Nastavuji registry pro zabezpeceni Office..." -ForegroundColor Yellow
+    $officeVersions = @("12.0", "14.0", "15.0", "16.0", "19.0")
+    foreach ($ver in $officeVersions) {
+        $apps = @("Word", "Excel", "PowerPoint", "Publisher", "Outlook")
+        foreach ($app in $apps) {
+            $base = "HKCU:\Software\Policies\Microsoft\Office\$ver\$app\Security"
+            if ($app -eq "Outlook") {
+                New-Item -Path $base -Force | Out-Null
+                Set-ItemProperty -Path $base -Name "markinternalasunsafe" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+            } else {
+                New-Item -Path $base -Force | Out-Null
+                Set-ItemProperty -Path $base -Name "vbawarnings" -Value 4 -Type DWord -ErrorAction SilentlyContinue
+                Set-ItemProperty -Path $base -Name "blockcontentexecutionfrominternet" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    # Dalsi registry pro WordMail a DontUpdateLinks
+    foreach ($ver in @("14.0", "15.0", "16.0")) {
+        $base = "HKCU:\Software\Microsoft\Office\$ver\Word\Options"
+        New-Item -Path $base -Force | Out-Null
+        Set-ItemProperty -Path $base -Name "DontUpdateLinks" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        $wm = "$base\WordMail"
+        New-Item -Path $wm -Force | Out-Null
+        Set-ItemProperty -Path $wm -Name "DontUpdateLinks" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+    }
+    Write-Host "  Office registry nastaveny." -ForegroundColor Green
+}
+
+function Set-DefenderSandboxing {
+    param([bool]$Enabled)
+    $val = if ($Enabled) { 1 } else { 0 }
+    Write-Host "  Nastavuji Defender sandboxing..." -ForegroundColor Yellow
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" -Name "MP_FORCE_USE_SANDBOX" -Value $val -Type DWord -ErrorAction SilentlyContinue
+    Write-Host "  Defender sandboxing nastaven na: $val" -ForegroundColor Green
+}
+
+function Update-DefenderSignatures {
+    Write-Host "  Aktualizuji Defender signatury..." -ForegroundColor Yellow
+    try {
+        Update-MpSignature -ErrorAction Stop
+        Write-Host "  Defender signatury aktualizovany." -ForegroundColor Green
+    } catch {
+        Write-Host "  CHYBA pri aktualizaci signatur: $_" -ForegroundColor Red
     }
 }
 
@@ -1029,23 +1081,27 @@ function Show-Menu-DefenderASR {
         Write-Host ""
 
         Write-MenuItem "1"  "ASR pravidla -> Zobrazit detail vsech pravidel"
-        Write-MenuItem "2"  "ASR pravidla -> Nastavit VSECHNA na BLOKOVAT"
+        Write-MenuItem "2"  "ASR pravidla -> Nastavit VSECHNA na BLOKOVAT [DOPORUČENO]" Green
         Write-MenuItem "3"  "ASR pravidla -> Nastavit VSECHNA na AUDIT"
         Write-MenuItem "4"  "ASR pravidla -> VYPNOUT VSECHNA"
         Write-Host ""
-        Write-MenuItem "5"  "PUA ochrana -> BLOKOVAT"
+        Write-MenuItem "5"  "PUA ochrana -> BLOKOVAT [DOPORUČENO]" Green
         Write-MenuItem "6"  "PUA ochrana -> AUDIT"
         Write-MenuItem "7"  "PUA ochrana -> VYPNOUT"
         Write-Host ""
-        Write-MenuItem "8"  "Defender Real-Time + Cloud -> ZAPNOUT"
+        Write-MenuItem "8"  "Defender Real-Time + Cloud -> ZAPNOUT [DOPORUČENO]" Green
         Write-MenuItem "9"  "Defender Real-Time -> VYPNOUT"
         Write-Host ""
-        Write-MenuItem "10" "Controlled Folder Access -> ZAPNOUT"
+        Write-MenuItem "10" "Controlled Folder Access -> ZAPNOUT [DOPORUČENO]" Green
         Write-MenuItem "11" "Controlled Folder Access -> AUDIT"
         Write-MenuItem "12" "Controlled Folder Access -> VYPNOUT"
         Write-Host ""
-        Write-MenuItem "13" "Tamper Protection -> ZAPNOUT"
+        Write-MenuItem "13" "Tamper Protection -> ZAPNOUT [DOPORUČENO]" Green
         Write-MenuItem "14" "Tamper Protection -> VYPNOUT"
+        Write-Host ""
+        Write-MenuItem "15" "Nastavit registry pro zabezpeceni Office [DOPORUČENO]" Green
+        Write-MenuItem "16" "Nastavit Defender sandboxing (zapnout) [DOPORUČENO]" Green
+        Write-MenuItem "17" "Aktualizovat Defender signatury [DOPORUČENO]" Green
         Write-Host ""
         Write-MenuItem "0"  "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
@@ -1066,6 +1122,9 @@ function Show-Menu-DefenderASR {
             "12" { Set-CFA -Mode 0; Pause-Menu }
             "13" { Set-TamperProtection -Enabled $true; Pause-Menu }
             "14" { Set-TamperProtection -Enabled $false; Pause-Menu }
+            "15" { Set-OfficeSecurityRegistry; Pause-Menu }
+            "16" { Set-DefenderSandboxing -Enabled $true; Pause-Menu }
+            "17" { Update-DefenderSignatures; Pause-Menu }
             "0"  { return }
             default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
         }
@@ -1088,10 +1147,10 @@ function Show-Menu-SmartScreen {
         Write-Host "    Windows: $ssSt | Edge: $esSt" -ForegroundColor DarkGray
         Write-Host ""
 
-        Write-MenuItem "1" "SmartScreen (Windows) -> ZAPNOUT"
+        Write-MenuItem "1" "SmartScreen (Windows) -> ZAPNOUT [DOPORUČENO]" Green
         Write-MenuItem "2" "SmartScreen (Windows) -> VYPNOUT"
         Write-Host ""
-        Write-MenuItem "3" "SmartScreen (Edge) -> ZAPNOUT"
+        Write-MenuItem "3" "SmartScreen (Edge) -> ZAPNOUT [DOPORUČENO]" Green
         Write-MenuItem "4" "SmartScreen (Edge) -> VYPNOUT"
         Write-Host ""
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
@@ -1129,16 +1188,16 @@ function Show-Menu-Network {
         Write-Host "    RDP: $rdpSt | SMBv1: $smbSt | LLMNR: $llmnrSt" -ForegroundColor DarkGray
         Write-Host ""
 
-        Write-MenuItem "1" "Windows Firewall -> ZAPNOUT"
+        Write-MenuItem "1" "Windows Firewall -> ZAPNOUT [DOPORUČENO]" Green
         Write-MenuItem "2" "Windows Firewall -> VYPNOUT"
         Write-Host ""
-        Write-MenuItem "3" "Vzdalena plocha (RDP) -> ZAKAZAT"
+        Write-MenuItem "3" "Vzdalena plocha (RDP) -> ZAKAZAT [DOPORUČENO]" Green
         Write-MenuItem "4" "Vzdalena plocha (RDP) -> POVOLIT"
         Write-Host ""
-        Write-MenuItem "5" "SMBv1 -> ZAKAZAT"
+        Write-MenuItem "5" "SMBv1 -> ZAKAZAT [DOPORUČENO]" Green
         Write-MenuItem "6" "SMBv1 -> POVOLIT"
         Write-Host ""
-        Write-MenuItem "7" "LLMNR -> ZAKAZAT"
+        Write-MenuItem "7" "LLMNR -> ZAKAZAT [DOPORUČENO]" Green
         Write-MenuItem "8" "LLMNR -> POVOLIT"
         Write-Host ""
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
@@ -1177,10 +1236,10 @@ function Show-Menu-System {
         Write-Host "    AutoRun: $arSt | PS Logging: $psSt" -ForegroundColor DarkGray
         Write-Host ""
 
-        Write-MenuItem "1" "AutoRun/AutoPlay -> ZAKAZAT"
+        Write-MenuItem "1" "AutoRun/AutoPlay -> ZAKAZAT [DOPORUČENO]" Green
         Write-MenuItem "2" "AutoRun/AutoPlay -> POVOLIT"
         Write-Host ""
-        Write-MenuItem "3" "PS Script Block Logging -> ZAPNOUT"
+        Write-MenuItem "3" "PS Script Block Logging -> ZAPNOUT [DOPORUČENO]" Green
         Write-MenuItem "4" "PS Script Block Logging -> VYPNOUT"
         Write-Host ""
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
@@ -1254,8 +1313,8 @@ function Show-Menu-DNS {
         Write-MenuItem "1" "Zobrazit detail DNS na vsech adapterech"
         Write-Host ""
         Write-Host "    Nastavit DNS profil:" -ForegroundColor Cyan
-        Write-MenuItem "2" "Cloudflare 1.1.1.2 / 1.0.0.2 - Blokace malware" Green
-        Write-MenuItem "3" "Cloudflare 1.1.1.3 / 1.0.0.3 - Blokace malware + dospely obsah" Green
+        Write-MenuItem "2" "Cloudflare 1.1.1.2 / 1.0.0.2 - Blokace malware [DOPORUČENO]" Green
+        Write-MenuItem "3" "Cloudflare 1.1.1.3 / 1.0.0.3 - Blokace malware + dospely obsah [DOPORUČENO]" Green
         Write-MenuItem "4" "Cloudflare 1.1.1.1 / 1.0.0.1 - Standardni (bez filtrace)"
         Write-Host ""
         Write-MenuItem "5" "Resetovat DNS na automaticke (DHCP)" Yellow
@@ -1294,10 +1353,10 @@ function Show-Menu-Hardening {
         Write-Host "    LM Hash: $lmSt | Sticky Keys: $skSt | BitLocker: $blSt" -ForegroundColor DarkGray
         Write-Host ""
 
-        Write-MenuItem "1" "Zakazat ukladani LM hashe"
+        Write-MenuItem "1" "Zakazat ukladani LM hashe [DOPORUČENO]" Green
         Write-MenuItem "2" "Povolit ukladani LM hashe"
         Write-Host ""
-        Write-MenuItem "3" "Zabezpecit zneuziti Sticky Keys"
+        Write-MenuItem "3" "Zabezpecit zneuziti Sticky Keys [DOPORUČENO]" Green
         Write-MenuItem "4" "Obnovit vychozi chovani Sticky Keys"
         Write-Host ""
         Write-MenuItem "5" "Zobrazit stav a navod pro BitLocker"
