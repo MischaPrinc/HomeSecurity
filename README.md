@@ -1,4 +1,3 @@
-# HomeSecurity
 # Nástroje pro Zabezpečení a Hardening Windows
 
 Tento repozitář obsahuje sadu interaktivních PowerShell skriptů pro pokročilé zabezpečení a hardening pracovních stanic s operačním systémem Windows 10 a 11. Skripty jsou navrženy tak, aby byly snadno použitelné i pro uživatele bez hlubokých znalostí PowerShellu, a to díky přehlednému menu.
@@ -13,6 +12,7 @@ Tento repozitář obsahuje sadu interaktivních PowerShell skriptů pro pokroči
 
 1.  [**`secure-pc.ps1`** - Interaktivní Hardening](#secure-pcps1---interaktivní-hardening)
 2.  [**`applocker-pc.ps1`** - Application & Macro Whitelisting](#applocker-pcps1---application--macro-whitelisting)
+3.  [**`monitor-pc.ps1`** - Monitoring & Audit](#monitor-pcps1---monitoring--audit)
 
 ---
 
@@ -80,3 +80,45 @@ Tento nástroj se zaměřuje na implementaci "Application Whitelisting" pomocí 
     -   **Důvěryhodní vydavatelé (Trusted Publishers):**
         -   Správa seznamu důvěryhodných certifikátů, jejichž makra budou vždy povolena.
         -   Možnost přidat vydavatele z `.cer` souboru nebo přímo z podepsaného `exe`/`dll`.
+
+---
+
+## `monitor-pc.ps1` - Monitoring & Audit
+
+Tento skript slouží k interaktivnímu monitoringu a auditu systému Windows. Umožňuje rychle ziskat přehled o bezpečnostních udalostech, bezicích procesech, otevřených portech, aktivitě skriptovacích enginu a dalších klicových informacích.
+
+### Funkce
+
+- **Bezpečnostní udalosti:**
+  - Vypis chybnych a uspesnych prihlaseni (Logon Failure/Success) ze Security logu.
+- **Spustene procesy:**
+  - Vypis vsech bezicich procesu vcetne informace o digitalnim podpisu spustitelneho souboru.
+- **Otevrene porty:**
+  - Vypis vsech otevrenych TCP portu a procesu, ktere je otevrel.
+- **Monitoring PowerShell, CMD, WMI:**
+  - Vypis aktualne spustenych PowerShell, CMD a WMI procesu.
+- **Dalsi monitoring:**
+  - Vypis naplanovanych uloh (Scheduled Tasks).
+  - Vypis sluzeb (Services).
+  - Vypis uzivatelu v systemu.
+
+### Popis jednotlivych funkci
+
+- **Bezpečnostní udalosti**
+  - Zobrazi posledni neuspesne prihlaseni (chyby loginu, ID 4625) a uspesne prihlaseni (ID 4624) ze Security logu.
+- **Spustene procesy**
+  - Vypise vsechny aktualne bezici procesy, u kazdeho zobrazi nazev, PID a informaci o digitalnim podpisu (pokud je k dispozici).
+- **Otevrene porty**
+  - Zobrazi vsechny TCP porty v rezimu LISTEN a k nim prirazeny proces (PID a nazev).
+- **Monitoring PowerShell, CMD, WMI**
+  - Vypise vsechny bezici PowerShell, CMD a WMI procesy, vcetne casu spusteni a cesty ke spustitelnemu souboru.
+- **Naplanovane ulohy**
+  - Vypise vsechny naplanovane ulohy v systemu, jejich stav a autora.
+- **Sluzby**
+  - Vypise vsechny sluzby, jejich stav a popis.
+- **Uzivatele**
+  - Vypise vsechny lokalni uzivatele v systemu, jejich stav a posledni prihlaseni.
+
+### Menu a ovladani
+
+Skript nabizi prehledne hlavni menu a podmenu pro jednotlive oblasti monitoringu. Po vyberu pozadovane volby se zobrazi odpovidajici informace, pripadne dalsi moznosti.

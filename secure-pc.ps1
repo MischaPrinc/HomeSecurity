@@ -9,7 +9,7 @@
       - AutoRun, PowerShell Script Block Logging
       - Sysmon64 instalace s pokrocilou konfiguraci
 .AUTHOR
-    Hack3r.cz
+    Mischa Princ
 .NOTES
     Spoustejte jako Administrator.
 #>

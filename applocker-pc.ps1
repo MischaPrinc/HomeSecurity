@@ -14,7 +14,7 @@
         - Sprava Trusted Publishers
         - Zobrazeni stavu
 .AUTHOR
-    Hack3r.cz
+    Mischa Princ
 .NOTES
     Spoustejte jako Administrator.
     WDAC vyzaduje Windows 10/11 Pro nebo vyssi.
