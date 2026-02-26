@@ -173,17 +173,17 @@ function Show-SecurityEvents {
     param([int]$MaxEvents = 100)
     
     Write-Header "Critical Security Events"
-    Write-Host "  Kritické bezpečnostní události:" -ForegroundColor Yellow
+    Write-Host "  Kriticke bezpecnostni udalosti:" -ForegroundColor Yellow
     Write-Host ""
     
     try {
         # Event IDs pro monitoring
-        # 4720 - Nový uživatel vytvořen
-        # 4722 - Uživatel aktivován
+        # 4720 - Novy uzivatel vytvoreny
+        # 4722 - Uzivatel aktivovan
         # 4724 - Pokus o reset hesla
-        # 4728 - Člen přidán do bezp. skupiny
-        # 4732 - Člen přidán do lokální skupiny
-        # 4756 - Člen přidán do univerzální skupiny
+        # 4728 - Clen pridan do bezp. skupiny
+        # 4732 - Clen pridan do lokalni skupiny
+        # 4756 - Clen pridan do univerzalni skupiny
         
         $criticalIDs = @(4720, 4722, 4724, 4728, 4732, 4756)
         $events = Get-WinEvent -FilterHashtable @{LogName='Security'; ID=$criticalIDs} -MaxEvents $MaxEvents -ErrorAction SilentlyContinue
@@ -252,7 +252,7 @@ function Show-RunningProcesses {
         
         $count = 0
         foreach ($proc in $processes) {
-            # Pokud není ShowAll, přeskoč systémové procesy
+            # Pokud neni ShowAll, preskoc systemove procesy
             if (-not $ShowAll -and $proc.Name -match '^(System|Registry|Idle|smss|csrss|wininit|services|lsass|svchost|dwm)$') {
                 continue
             }
@@ -284,7 +284,7 @@ function Show-RunningProcesses {
             Write-Host "    CPU: $cpu s | RAM: $mem MB" -ForegroundColor DarkGray
             Write-Host ""
             
-            # Omezení výstupu pro lepší čitelnost
+            # Omezeni vystupu pro lepsi citelnost
             if (-not $ShowAll -and $count -ge 30) {
                 Write-Host "  ... (zobrazeno prvnich 30 procesu, pouzijte 'Show-All' pro vice)" -ForegroundColor Yellow
                 break
@@ -307,7 +307,7 @@ function Show-UnsignedProcesses {
         $suspiciousCount = 0
         
         foreach ($proc in $processes) {
-            # Přeskoč základní systémové procesy
+            # Preskoc zakladni systemove procesy
             if ($proc.Name -match '^(System|Registry|Idle|smss|csrss|wininit|services)$') {
                 continue
             }
@@ -317,7 +317,7 @@ function Show-UnsignedProcesses {
             if ($path) {
                 $signature = Get-ProcessSignature -Path $path
                 
-                # Označ podezřelé
+                # Oznac podezrele
                 if ($signature -match 'Nepodepsano|Neplatny') {
                     $suspiciousCount++
                     Write-Host "  [!] $($proc.Name) " -NoNewline -ForegroundColor Red
@@ -527,7 +527,7 @@ function Show-AllScriptingProcesses {
 function Test-SuspiciousCommand {
     param([string]$Command)
     
-    # Detekční vzory - konstruovány za běhu pro obcházení statické detekce antivirem
+    # Detekci vzory - konstruovany za behu pro obchazeni staticke detekce antivirem
     $suspiciousPatterns = @(
         @{ Pattern = '-ExecutionPolicy\s+(Bypass|Unrestricted)'; Description = 'Execution Policy Bypass'; Severity = 'High' }
         @{ Pattern = '-[Ee]nc(odedCommand)?'; Description = 'Encoded Command'; Severity = 'High' }
@@ -554,7 +554,7 @@ function Test-SuspiciousCommand {
     $findings = @()
     foreach ($item in $suspiciousPatterns) {
         if ($Command -match $item.Pattern) {
-            $findings += [PSCustomObject]@{
+            $findings += @{
                 Description = $item.Description
                 Severity = $item.Severity
             }
@@ -584,7 +584,7 @@ function Show-PowerShellHistory {
     Write-Host ""
     
     try {
-        # Zkontroluj, zda je Script Block Logging zapnutý
+        # Zkontroluj, zda je Script Block Logging zapnuty
         $regPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging"
         $loggingEnabled = $false
         
@@ -601,7 +601,7 @@ function Show-PowerShellHistory {
             Write-Host ""
         }
         
-        # Načti PowerShell Script Block události
+        # Nacti PowerShell Script Block udalosti
         $events = Get-WinEvent -FilterHashtable @{
             LogName='Microsoft-Windows-PowerShell/Operational'
             ID=4104
@@ -621,7 +621,7 @@ function Show-PowerShellHistory {
                     $message 
                 }
                 
-                # Zkrať velmi dlouhé příkazy
+                # Zkrat velmi dlouhe prikazy
                 $displayScript = if ($scriptBlock.Length -gt 200) {
                     $scriptBlock.Substring(0, 200) + "..."
                 } else {
@@ -639,12 +639,12 @@ function Show-PowerShellHistory {
                     Write-Host "      Detekce:" -ForegroundColor Yellow
                     
                     foreach ($finding in $findings) {
-                        $color = Get-SeverityColor -Severity $finding.Severity
-                        Write-Host "        - [$($finding.Severity)] $($finding.Description)" -ForegroundColor $color
+                        $color = Get-SeverityColor -Severity $finding['Severity']
+                        Write-Host "        - [$($finding['Severity'])] $($finding['Description'])" -ForegroundColor $color
                     }
                     Write-Host ""
                 } else {
-                    # Normální příkaz - zobraz jen zkráceně
+                    # Normalni prikaz - zobraz jen zkracene
                     Write-Host "  [$time]" -ForegroundColor Green
                     Write-Host "    $displayScript" -ForegroundColor Gray
                     Write-Host ""
@@ -672,20 +672,20 @@ function Show-ProcessCreationHistory {
     Write-Host ""
     
     try {
-        # Zkontroluj, zda je Process Creation Audit zapnutý
-        $auditCheck = auditpol /get /category:* | Select-String "Process Creation|Vytváření procesu"
-        $auditEnabled = $auditCheck -and ($auditCheck | Select-String "Success|Úspěch")
+        # Zkontroluj, zda je Process Creation Audit zapnuty
+        $auditCheck = auditpol /get /category:* | Select-String "Process Creation|Vytvareni procesu"
+        $auditEnabled = $auditCheck -and ($auditCheck | Select-String "Success|Uspech")
         
         if (-not $auditEnabled) {
             Write-Host "  [!] VAROVANI: Process Creation Auditing NENI zapnuto!" -ForegroundColor Red
             Write-Host "      Pro zapnuti (cesky Windows):" -ForegroundColor Yellow
-            Write-Host "        auditpol /set /subcategory:`"Vytváření procesu`" /success:enable" -ForegroundColor Yellow
+            Write-Host "        auditpol /set /subcategory:`"Vytvareni procesu`" /success:enable" -ForegroundColor Yellow
             Write-Host "      Pro zapnuti (anglicky Windows):" -ForegroundColor Yellow
             Write-Host "        auditpol /set /subcategory:`"Process Creation`" /success:enable" -ForegroundColor Yellow
             Write-Host ""
         }
         
-        # Načti Process Creation události
+        # Nacti Process Creation udalosti
         $events = Get-WinEvent -FilterHashtable @{
             LogName='Security'
             ID=4688
@@ -702,7 +702,7 @@ function Show-ProcessCreationHistory {
                 $newProcessName = $event.Properties[5].Value
                 $commandLine = if ($event.Properties.Count -gt 8) { $event.Properties[8].Value } else { "" }
                 
-                # Filtruj pouze PowerShell, CMD, WMI a další zajímavé procesy
+                # Filtruj pouze PowerShell, CMD, WMI a dalsi zajimave procesy
                 if ($newProcessName -notmatch '(powershell|cmd\.exe|wmic\.exe|mshta\.exe|regsvr32\.exe|rundll32\.exe|cscript\.exe|wscript\.exe)') {
                     continue
                 }
@@ -732,8 +732,8 @@ function Show-ProcessCreationHistory {
                 if ($findings.Count -gt 0) {
                     Write-Host "      Detekce:" -ForegroundColor Yellow
                     foreach ($finding in $findings) {
-                        $color = Get-SeverityColor -Severity $finding.Severity
-                        Write-Host "        - [$($finding.Severity)] $($finding.Description)" -ForegroundColor $color
+                        $color = Get-SeverityColor -Severity $finding['Severity']
+                        Write-Host "        - [$($finding['Severity'])] $($finding['Description'])" -ForegroundColor $color
                     }
                 }
                 
@@ -760,7 +760,7 @@ function Show-SysmonHistory {
     Write-Host ""
     
     try {
-        # Zjisti, zda je Sysmon nainstalován
+        # Zjisti, zda je Sysmon nainstalovan
         $sysmonRunning = Get-Service -Name "Sysmon64" -ErrorAction SilentlyContinue
         if (-not $sysmonRunning) {
             $sysmonRunning = Get-Service -Name "Sysmon" -ErrorAction SilentlyContinue
@@ -773,7 +773,7 @@ function Show-SysmonHistory {
             return
         }
         
-        # Načti Sysmon Process Creation události
+        # Nacti Sysmon Process Creation udalosti
         $events = Get-WinEvent -FilterHashtable @{
             LogName='Microsoft-Windows-Sysmon/Operational'
             ID=1
@@ -792,7 +792,7 @@ function Show-SysmonHistory {
                 $parentImage = $event.Properties[20].Value
                 $hashes = if ($event.Properties.Count -gt 24) { $event.Properties[24].Value } else { "" }
                 
-                # Filtruj pouze zajímavé procesy
+                # Filtruj pouze zajimave procesy
                 if ($image -notmatch '(powershell|cmd\.exe|wmic\.exe|mshta\.exe|regsvr32\.exe|rundll32\.exe|cscript\.exe|wscript\.exe)') {
                     continue
                 }
@@ -827,8 +827,8 @@ function Show-SysmonHistory {
                 if ($findings.Count -gt 0) {
                     Write-Host "      Detekce:" -ForegroundColor Yellow
                     foreach ($finding in $findings) {
-                        $color = Get-SeverityColor -Severity $finding.Severity
-                        Write-Host "        - [$($finding.Severity)] $($finding.Description)" -ForegroundColor $color
+                        $color = Get-SeverityColor -Severity $finding['Severity']
+                        Write-Host "        - [$($finding['Severity'])] $($finding['Description'])" -ForegroundColor $color
                     }
                 }
                 
@@ -1006,7 +1006,7 @@ function Show-StoppedServices {
                 Write-Host "      Stav: $($svc.Status) | Start: $($svc.StartType)" -ForegroundColor Gray
                 Write-Host ""
             }
-            Write-Host "  Automaticke sluzby, ktere NEBEŽÍ: $($services.Count)" -ForegroundColor Red
+            Write-Host "  Automaticke sluzby, ktere NEBEZI: $($services.Count)" -ForegroundColor Red
         } else {
             Write-Host "  Vsechny automaticke sluzby bezi." -ForegroundColor Green
         }
@@ -1083,7 +1083,7 @@ function Show-StartupPrograms {
     Write-Host ""
     
     try {
-        # Zkontroluj běžné lokace autostartu
+        # Zkontroluj bezne lokace autostartu
         $locations = @(
             "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
             "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
@@ -1107,7 +1107,7 @@ function Show-StartupPrograms {
             }
         }
         
-        # Startup složka
+        # Startup slozka
         $startupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
         if (Test-Path $startupFolder) {
             $files = Get-ChildItem -Path $startupFolder -ErrorAction SilentlyContinue
@@ -1275,7 +1275,7 @@ function Show-Menu-CommandHistory {
         Show-Banner
         Write-Header "Historie Prikazu a Detekce Hrozeb"
         
-        Write-Host "  Analyza historie s detekcí podezřelých vzorů:" -ForegroundColor Yellow
+        Write-Host "  Analyza historie s detekcí podezrelych vzoru:" -ForegroundColor Yellow
         Write-Host "    - ExecutionPolicy Bypass, EncodedCommand" -ForegroundColor DarkGray
         Write-Host "    - Download cradles, Base64 encoding" -ForegroundColor DarkGray
         Write-Host "    - Defender modifications, LOLBins" -ForegroundColor DarkGray
@@ -1322,7 +1322,7 @@ function Show-QuickOverview {
     Write-Host "  Nacitam data..." -ForegroundColor Yellow
     Write-Host ""
     
-    # Základní info
+    # Zakladni info
     Write-Host "  SYSTEM:" -ForegroundColor Cyan
     $os = Get-CimInstance Win32_OperatingSystem
     Write-Host "    OS: $($os.Caption) $($os.Version)" -ForegroundColor White
