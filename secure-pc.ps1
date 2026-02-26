@@ -17,10 +17,7 @@
 # ==============================================================================
 #                     K O N T R O L A   A D M I N A
 # ==============================================================================
-$currentPrincipal = New-Object Security.Principal.WindowsPrincipal(
-    [Security.Principal.WindowsIdentity]::GetCurrent()
-)
-if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+if (-not ([bool]([Security.Principal.WindowsIdentity]::GetCurrent().Groups -match 'S-1-5-32-544'))) {
     Write-Host ""
     Write-Host "  +============================================================+" -ForegroundColor Red
     Write-Host "  |   CHYBA: Tento skript musi byt spusten jako ADMINISTRATOR!  |" -ForegroundColor Red
