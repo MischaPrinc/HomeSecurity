@@ -80,7 +80,7 @@ function Show-Banner {
     Write-Host ""
     Write-Host "  +============================================================+" -ForegroundColor Cyan
     Write-Host "  |       ZABEZPECENI DOMACIHO PC - Interaktivni nastroj        |" -ForegroundColor Cyan
-    Write-Host "  |                     vytvoril: Hack3r.cz                     |" -ForegroundColor DarkCyan
+    Write-Host "  |                   vytvoril: Mischa Princ                    |" -ForegroundColor DarkCyan
     Write-Host "  +============================================================+" -ForegroundColor Cyan
 }
 
@@ -1414,7 +1414,7 @@ do {
         "99" { Show-FullStatus; Pause-Menu }
         "0"  {
             Write-Host ""
-            Write-Host "  Ukoncuji. Zustan v bezpeci! - Hack3r.cz" -ForegroundColor Cyan
+            Write-Host "  Ukoncuji. Zustan v bezpeci!" -ForegroundColor Cyan
             Write-Host ""
         }
         default {
