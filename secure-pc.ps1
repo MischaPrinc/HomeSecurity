@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Interaktivni skript pro zabezpeceni domaciho PC s Windows 10/11.
 .DESCRIPTION
@@ -7,7 +7,7 @@
       - SmartScreen pro Windows / Microsoft Edge
       - Windows Firewall, RDP, SMBv1, LLMNR
       - AutoRun, PowerShell Script Block Logging
-      - Sysmon64 instalace s pokrocilou konfiguraci
+    - Sysmon64 instalace s pokrocilou konfiguraci
 .AUTHOR
     Mischa Princ
 .NOTES
@@ -19,9 +19,9 @@
 # ==============================================================================
 if (-not ([bool]([Security.Principal.WindowsIdentity]::GetCurrent().Groups -match 'S-1-5-32-544'))) {
     Write-Host ""
-    Write-Host "  +============================================================+" -ForegroundColor Red
-    Write-Host "  |   CHYBA: Tento skript musi byt spusten jako ADMINISTRATOR!  |" -ForegroundColor Red
-    Write-Host "  +============================================================+" -ForegroundColor Red
+    Write-Host "  +===========================================================+" -ForegroundColor Red
+    Write-Host "  |   CHYBA: Tento skript musi byt spusten jako ADMINISTRATOR! |" -ForegroundColor Red
+    Write-Host "  +===========================================================+" -ForegroundColor Red
     Write-Host ""
     Write-Host "  Kliknete pravym tlacitkem na PowerShell -> Spustit jako spravce" -ForegroundColor Yellow
     Write-Host ""
@@ -76,8 +76,8 @@ function Show-Banner {
     Clear-Host
     Write-Host ""
     Write-Host "  +============================================================+" -ForegroundColor Cyan
-    Write-Host "  |       ZABEZPECENI DOMACIHO PC - Interaktivni nastroj        |" -ForegroundColor Cyan
-    Write-Host "  |                   vytvoril: Mischa Princ                    |" -ForegroundColor DarkCyan
+    Write-Host "  |       ZABEZPECENI DOMACIHO PC - Interaktivni nastroj      |" -ForegroundColor Cyan
+    Write-Host "  |                   vytvoril: Mischa Princ                   |" -ForegroundColor DarkCyan
     Write-Host "  +============================================================+" -ForegroundColor Cyan
 }
 
@@ -988,11 +988,11 @@ function Enable-MaxSecurity {
     Set-SecureDNS -ProfileKey "cloudflare_malware"
     Set-LMHashState -Disabled $true
     Set-StickyKeysState -Secured $true
-    # Nové: Office registry
+    # Nove: Office registry
     Set-OfficeSecurityRegistry
-    # Nové: Defender sandboxing
+    # Nove: Defender sandboxing
     Set-DefenderSandboxing -Enabled $true
-    # Nové: Update Defender signatur
+    # Nove: Update Defender signatur
     Update-DefenderSignatures
     Write-Host ""
     Write-Host "  *** Vse nastaveno na maximalni ochranu! ***" -ForegroundColor Green
@@ -1055,54 +1055,97 @@ function Update-DefenderSignatures {
 # ==============================================================================
 
 # -- Windows Update ------------------------------------------------------------
-function Get-WindowsUpdateStatus {
+function Test-PSWindowsUpdate {
     try {
-        # Pouziti COM objektu pro Windows Update
-        $updateSession = New-Object -ComObject Microsoft.Update.Session
-        $updateSearcher = $updateSession.CreateUpdateSearcher()
-        
-        Write-Host "  Hledam dostupne aktualizace..." -ForegroundColor Yellow
-        $searchResult = $updateSearcher.Search("IsInstalled=0 and Type='Software' and IsHidden=0")
-        
-        $missing = $searchResult.Updates
-        $installedSearcher = $updateSession.CreateUpdateSearcher()
-        $installedResult = $installedSearcher.Search("IsInstalled=1 and Type='Software'")
-        $installed = $installedResult.Updates
-        
-        return @{
-            Installed = $installed
-            Missing = $missing
-            InstalledCount = $installed.Count
-            MissingCount = $missing.Count
+        $module = Get-Module -ListAvailable -Name PSWindowsUpdate -ErrorAction SilentlyContinue
+        return ($null -ne $module)
+    } catch {
+        return $false
+    }
+}
+
+function Get-WindowsUpdateStatus {
+    Write-Host "  Kontroluji Windows Update..." -ForegroundColor Yellow
+    Write-Host ""
+    
+    # Zkusit PSWindowsUpdate modul
+    if (Test-PSWindowsUpdate) {
+        try {
+            Import-Module PSWindowsUpdate -ErrorAction Stop
+            Write-Host "  Pouzivam modul PSWindowsUpdate..." -ForegroundColor Cyan
+            $updates = Get-WindowsUpdate -MicrosoftUpdate -ErrorAction Stop
+            
+            return @{
+                Updates = $updates
+                MissingCount = $updates.Count
+                Method = "PSWindowsUpdate"
+            }
+        } catch {
+            Write-Host "  Varovani: PSWindowsUpdate selhal - $_" -ForegroundColor Yellow
+        }
+    }
+    
+    # Fallback: Pouzit UsoClient (Windows Update Orchestrator)
+    Write-Host "  Pouzivam Windows Update sluzbu..." -ForegroundColor Cyan
+    Write-Host "  Spustim kontrolu aktualizaci na pozadi." -ForegroundColor DarkGray
+    Write-Host ""
+    
+    # Spustit kontrolu
+    try {
+        Start-Process -FilePath "usoclient.exe" -ArgumentList "StartScan" -NoNewWindow -Wait -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    } catch {
+        # Ignorovat chyby - UsoClient nemusi vracat standardni exit code
+    }
+    
+    # Zkusit zjistit z Windows Update logu nebo service
+    try {
+        $wuService = Get-Service -Name wuauserv -ErrorAction SilentlyContinue
+        if ($wuService.Status -ne 'Running') {
+            Write-Host "  Windows Update sluzba nebezi. Spoustim..." -ForegroundColor Yellow
+            Start-Service -Name wuauserv -ErrorAction Stop
+            Start-Sleep -Seconds 2
         }
     } catch {
-        Write-Host "  CHYBA pri ziskavani stavu aktualizaci: $_" -ForegroundColor Red
-        return @{Installed = @(); Missing = @(); InstalledCount = 0; MissingCount = 0}
+        Write-Host "  Varovani: Nelze ovladat Windows Update sluzbu." -ForegroundColor Yellow
+    }
+    
+    return @{
+        Updates = @()
+        MissingCount = -1
+        Method = "UsoClient"
     }
 }
 
 function Show-WindowsUpdateStatus {
     Write-Header "Stav Windows Update"
+    
+    Write-Host ""
+    Write-Host "  Pro detailni kontrolu aktualizaci doporucujeme:" -ForegroundColor Cyan
+    Write-Host "  1. Nastaveni > Windows Update > Zkontrolovat aktualizace" -ForegroundColor White
+    Write-Host "  2. Nebo nainstalovat modul: Install-Module PSWindowsUpdate -Force" -ForegroundColor White
+    Write-Host ""
+    
     $status = Get-WindowsUpdateStatus
     
-    Write-Host ""
-    Write-Host "  Nainstalovane aktualizace: " -NoNewline
-    Write-Host $status.InstalledCount -ForegroundColor Green
-    Write-Host "  Chybejici aktualizace:     " -NoNewline
-    if ($status.MissingCount -gt 0) {
-        Write-Host $status.MissingCount -ForegroundColor Red
-    } else {
-        Write-Host $status.MissingCount -ForegroundColor Green
-    }
-    Write-Host ""
-    
-    if ($status.MissingCount -gt 0) {
-        Write-Host "  Chybejici aktualizace:" -ForegroundColor Yellow
-        foreach ($update in $status.Missing) {
-            Write-Host "    - $($update.Title)" -ForegroundColor White
+    if ($status.Method -eq "PSWindowsUpdate" -and $status.MissingCount -ge 0) {
+        Write-Host ""
+        if ($status.MissingCount -gt 0) {
+            Write-Host "  Dostupne aktualizace: " -NoNewline
+            Write-Host $status.MissingCount -ForegroundColor Red
+            Write-Host ""
+            Write-Host "  Seznam aktualizaci:" -ForegroundColor Yellow
+            foreach ($update in $status.Updates) {
+                $size = if ($update.Size) { " (" + [math]::Round($update.Size/1MB, 1) + " MB)" } else { "" }
+                Write-Host "    - $($update.Title)$size" -ForegroundColor White
+            }
+        } else {
+            Write-Host "  System je aktualni!" -ForegroundColor Green
         }
     } else {
-        Write-Host "  System je aktualni!" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "  Kontrola aktualizaci byla spustena na pozadi." -ForegroundColor Green
+        Write-Host "  Otevrete Nastaveni > Windows Update pro zobrazeni vysledku." -ForegroundColor Yellow
     }
 }
 
@@ -1111,50 +1154,49 @@ function Start-WindowsUpdate {
     Write-Host "  Spoustim instalaci Windows aktualizaci..." -ForegroundColor Yellow
     Write-Host "  POZOR: Toto muze trvat nekolik minut." -ForegroundColor DarkGray
     Write-Host ""
+    # Zkusit PSWindowsUpdate modul
+    if (Test-PSWindowsUpdate) {
+        try {
+            Import-Module PSWindowsUpdate -ErrorAction Stop
+            Write-Host "  Pouzivam modul PSWindowsUpdate..." -ForegroundColor Cyan
+            Write-Host ""
+            
+            $updates = Get-WindowsUpdate -MicrosoftUpdate -AcceptAll -Install -AutoReboot -ErrorAction Stop
+            
+            Write-Host ""
+            Write-Host "  Aktualizace dokonceny!" -ForegroundColor Green
+            return
+        } catch {
+            Write-Host "  Varovani: PSWindowsUpdate selhal - $_" -ForegroundColor Yellow
+            Write-Host ""
+        }
+    }
+    
+    # Fallback: Pouzit UsoClient
+    Write-Host "  Spoustim Windows Update pres systemovou sluzbu..." -ForegroundColor Yellow
+    Write-Host ""
     
     try {
-        $updateSession = New-Object -ComObject Microsoft.Update.Session
-        $updateSearcher = $updateSession.CreateUpdateSearcher()
+        # Spustit stahovani a instalaci
+        Write-Host "  Spoustim stahovani aktualizaci..." -ForegroundColor Cyan
+        Start-Process -FilePath "usoclient.exe" -ArgumentList "StartDownload" -NoNewWindow -Wait -ErrorAction SilentlyContinue
         
-        Write-Host "  Hledam aktualizace..." -ForegroundColor Yellow
-        $searchResult = $updateSearcher.Search("IsInstalled=0 and Type='Software' and IsHidden=0")
-        
-        if ($searchResult.Updates.Count -eq 0) {
-            Write-Host "  Zadne aktualizace k instalaci." -ForegroundColor Green
-            return
-        }
-        
-        Write-Host "  Nalezeno $($searchResult.Updates.Count) aktualizaci." -ForegroundColor Cyan
-        
-        $updatesToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
-        foreach ($update in $searchResult.Updates) {
-            if (-not $update.EulaAccepted) {
-                $update.AcceptEula()
-            }
-            $updatesToInstall.Add($update) | Out-Null
-            Write-Host "    + $($update.Title)" -ForegroundColor White
-        }
+        Write-Host "  Spoustim instalaci aktualizaci..." -ForegroundColor Cyan
+        Start-Process -FilePath "usoclient.exe" -ArgumentList "StartInstall" -NoNewWindow -Wait -ErrorAction SilentlyContinue
         
         Write-Host ""
-        Write-Host "  Stahuji a instaluji aktualizace..." -ForegroundColor Yellow
-        $installer = $updateSession.CreateUpdateInstaller()
-        $installer.Updates = $updatesToInstall
-        $installationResult = $installer.Install()
-        
+        Write-Host "  Pozadavek na instalaci aktualizaci byl odeslan." -ForegroundColor Green
         Write-Host ""
-        if ($installationResult.ResultCode -eq 2) {
-            Write-Host "  Aktualizace uspesne nainstalovany!" -ForegroundColor Green
-        } else {
-            Write-Host "  Instalace dokoncena s kodem: $($installationResult.ResultCode)" -ForegroundColor Yellow
-        }
-        
-        if ($installationResult.RebootRequired) {
-            Write-Host ""
-            Write-Host "  POZOR: Je vyzadovan restart systemu!" -ForegroundColor Red
-        }
+        Write-Host "  Pro sledovani postupu otevrete:" -ForegroundColor Yellow
+        Write-Host "  Nastaveni > Windows Update" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  POZNAMKA: Pro plnou funkcnost doporucujeme nainstalovat:" -ForegroundColor Cyan
+        Write-Host "  Install-Module PSWindowsUpdate -Force" -ForegroundColor White
     } catch {
         Write-Host "  CHYBA pri instalaci aktualizaci: $_" -ForegroundColor Red
-        Write-Host "  TIP: Zkuste spustit Windows Update manualne pres Nastaveni." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  TIP: Spustte Windows Update manualne:" -ForegroundColor Yellow
+        Write-Host "  Nastaveni > Windows Update > Zkontrolovat aktualizace" -ForegroundColor White
     }
 }
 
@@ -1169,7 +1211,7 @@ function Test-WingetAvailable {
 }
 
 function Get-InstalledSoftwareList {
-    Write-Host "  Nacitam seznam nainstalovaného software..." -ForegroundColor Yellow
+    Write-Host "  Nacitam seznam nainstalovaneho software..." -ForegroundColor Yellow
     
     if (-not (Test-WingetAvailable)) {
         Write-Host "  VAROVANI: Winget neni nainstalovan!" -ForegroundColor Red
@@ -1202,7 +1244,7 @@ function Get-InstalledSoftwareList {
 }
 
 function Show-InstalledSoftware {
-    Write-Header "Nainstalovaný software"
+    Write-Header "Nainstalovany software"
     Write-Host ""
     
     if (Test-WingetAvailable) {
@@ -1641,9 +1683,9 @@ function Show-Menu-UpdatesAndSoftware {
     do {
         Show-Banner
         Write-SubHeader "AKTUALIZACE A SOFTWARE" @"
-  Pravidelne aktualizace Windows a nainstalovaného software jsou klicove
+  Pravidelne aktualizace Windows a nainstalovaneho software jsou klicove
   pro bezpecnost systemu. Zde muzete zkontrolovat dostupne aktualizace
-  Windows, zobrazit nainstalovaný software a aktualizovat aplikace pomoci
+  Windows, zobrazit nainstalovany software a aktualizovat aplikace pomoci
   Winget (Windows Package Manager).
 
   POZNAMKA: Zjistovani stavu aktualizaci muze chvili trvat. Informace
@@ -1656,7 +1698,7 @@ function Show-Menu-UpdatesAndSoftware {
         Write-Host ""
         
         Write-Host "  SOFTWARE (WINGET):" -ForegroundColor Cyan
-        Write-MenuItem "3" "Zobrazit nainstalovaný software"
+        Write-MenuItem "3" "Zobrazit nainstalovany software"
         Write-MenuItem "4" "Zobrazit dostupne aktualizace software"
         Write-MenuItem "5" "Aktualizovat vsechny aplikace [DOPORUCENO]" Green
         Write-Host ""
