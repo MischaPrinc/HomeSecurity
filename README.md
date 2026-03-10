@@ -49,6 +49,35 @@ Tento skript poskytuje komplexní sadu nástrojů pro posílení bezpečnosti sy
     -   Automatická instalace a konfigurace Sysmonu (System Monitor) z Sysinternals Suite.
     -   Využívá pokročilou a komunitou prověřenou konfiguraci od Olafa Hartonga (`sysmon-modular`).
 
+-   **Aktualizace a Software:**
+    -   **Windows Update:**
+        -   Zobrazení přehledu nainstalovaných Windows aktualizací.
+        -   Detekce chybějících bezpečnostních aktualizací.
+        -   Možnost spustit instalaci Windows aktualizací přímo ze skriptu.
+    -   **Správa software (Winget):**
+        -   Zobrazení seznamu veškerého nainstalovaného software včetně verzí.
+        -   Kontrola dostupných aktualizací pro nainstalované aplikace.
+        -   Automatická aktualizace všech aplikací pomocí Windows Package Manager (Winget).
+        -   Fallback na registry, pokud Winget není dostupný.
+    -   **Quick status:**
+        -   Rychlý přehled dostupných aktualizací software přímo v hlavním menu.
+
+-   **Další doporučená nastavení:**
+    -   Zakázání ukládání LM hashů pro lepší zabezpečení hesel.
+    -   Zabezpečení proti zneužití Sticky Keys.
+    -   Návod na aktivaci BitLocker šifrování disku.
+
+### Menu a ovládání
+
+Skript nabízí přehledné hierarchické menu s číslovanými volbami. Každá sekce má vlastní podmenu s detailními možnostmi konfigurace. Aktuální stav jednotlivých bezpečnostních prvků je zobrazován přímo v menu s barevným označením (zelená = bezpečné, červená = rizikové, žlutá = částečné).
+
+### Doporučené použití
+
+1. Spusťte skript s administrátorskými právy
+2. Použijte volbu **"10) ZAPNOUT VSE (maximum zabezpeceni)"** pro rychlou aktivaci všech doporučených nastavení
+3. Nebo procházejte jednotlivými sekcemi a přizpůsobte nastavení podle vašich potřeb
+4. Pravidelně kontrolujte sekci **"8) Aktualizace a Software"** pro udržení systému aktuálního
+
 ---
 
 ## `applocker-pc.ps1` - Application & Macro Whitelisting

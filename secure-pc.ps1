@@ -1051,6 +1051,268 @@ function Update-DefenderSignatures {
 }
 
 # ==============================================================================
+#     A K T U A L I Z A C E   W I N D O W S   A   S O F T W A R E
+# ==============================================================================
+
+# -- Windows Update ------------------------------------------------------------
+function Get-WindowsUpdateStatus {
+    try {
+        # Pouziti COM objektu pro Windows Update
+        $updateSession = New-Object -ComObject Microsoft.Update.Session
+        $updateSearcher = $updateSession.CreateUpdateSearcher()
+        
+        Write-Host "  Hledam dostupne aktualizace..." -ForegroundColor Yellow
+        $searchResult = $updateSearcher.Search("IsInstalled=0 and Type='Software' and IsHidden=0")
+        
+        $missing = $searchResult.Updates
+        $installedSearcher = $updateSession.CreateUpdateSearcher()
+        $installedResult = $installedSearcher.Search("IsInstalled=1 and Type='Software'")
+        $installed = $installedResult.Updates
+        
+        return @{
+            Installed = $installed
+            Missing = $missing
+            InstalledCount = $installed.Count
+            MissingCount = $missing.Count
+        }
+    } catch {
+        Write-Host "  CHYBA pri ziskavani stavu aktualizaci: $_" -ForegroundColor Red
+        return @{Installed = @(); Missing = @(); InstalledCount = 0; MissingCount = 0}
+    }
+}
+
+function Show-WindowsUpdateStatus {
+    Write-Header "Stav Windows Update"
+    $status = Get-WindowsUpdateStatus
+    
+    Write-Host ""
+    Write-Host "  Nainstalovane aktualizace: " -NoNewline
+    Write-Host $status.InstalledCount -ForegroundColor Green
+    Write-Host "  Chybejici aktualizace:     " -NoNewline
+    if ($status.MissingCount -gt 0) {
+        Write-Host $status.MissingCount -ForegroundColor Red
+    } else {
+        Write-Host $status.MissingCount -ForegroundColor Green
+    }
+    Write-Host ""
+    
+    if ($status.MissingCount -gt 0) {
+        Write-Host "  Chybejici aktualizace:" -ForegroundColor Yellow
+        foreach ($update in $status.Missing) {
+            Write-Host "    - $($update.Title)" -ForegroundColor White
+        }
+    } else {
+        Write-Host "  System je aktualni!" -ForegroundColor Green
+    }
+}
+
+function Start-WindowsUpdate {
+    Write-Host ""
+    Write-Host "  Spoustim instalaci Windows aktualizaci..." -ForegroundColor Yellow
+    Write-Host "  POZOR: Toto muze trvat nekolik minut." -ForegroundColor DarkGray
+    Write-Host ""
+    
+    try {
+        $updateSession = New-Object -ComObject Microsoft.Update.Session
+        $updateSearcher = $updateSession.CreateUpdateSearcher()
+        
+        Write-Host "  Hledam aktualizace..." -ForegroundColor Yellow
+        $searchResult = $updateSearcher.Search("IsInstalled=0 and Type='Software' and IsHidden=0")
+        
+        if ($searchResult.Updates.Count -eq 0) {
+            Write-Host "  Zadne aktualizace k instalaci." -ForegroundColor Green
+            return
+        }
+        
+        Write-Host "  Nalezeno $($searchResult.Updates.Count) aktualizaci." -ForegroundColor Cyan
+        
+        $updatesToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
+        foreach ($update in $searchResult.Updates) {
+            if (-not $update.EulaAccepted) {
+                $update.AcceptEula()
+            }
+            $updatesToInstall.Add($update) | Out-Null
+            Write-Host "    + $($update.Title)" -ForegroundColor White
+        }
+        
+        Write-Host ""
+        Write-Host "  Stahuji a instaluji aktualizace..." -ForegroundColor Yellow
+        $installer = $updateSession.CreateUpdateInstaller()
+        $installer.Updates = $updatesToInstall
+        $installationResult = $installer.Install()
+        
+        Write-Host ""
+        if ($installationResult.ResultCode -eq 2) {
+            Write-Host "  Aktualizace uspesne nainstalovany!" -ForegroundColor Green
+        } else {
+            Write-Host "  Instalace dokoncena s kodem: $($installationResult.ResultCode)" -ForegroundColor Yellow
+        }
+        
+        if ($installationResult.RebootRequired) {
+            Write-Host ""
+            Write-Host "  POZOR: Je vyzadovan restart systemu!" -ForegroundColor Red
+        }
+    } catch {
+        Write-Host "  CHYBA pri instalaci aktualizaci: $_" -ForegroundColor Red
+        Write-Host "  TIP: Zkuste spustit Windows Update manualne pres Nastaveni." -ForegroundColor Yellow
+    }
+}
+
+# -- Software Management (Winget) ----------------------------------------------
+function Test-WingetAvailable {
+    try {
+        $null = Get-Command winget -ErrorAction Stop
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Get-InstalledSoftwareList {
+    Write-Host "  Nacitam seznam nainstalovaného software..." -ForegroundColor Yellow
+    
+    if (-not (Test-WingetAvailable)) {
+        Write-Host "  VAROVANI: Winget neni nainstalovan!" -ForegroundColor Red
+        Write-Host "  Pouziji alternativni metodu (registry)..." -ForegroundColor Yellow
+        
+        # Ziskani ze standardnich registru
+        $paths = @(
+            "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+            "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+        )
+        
+        $apps = foreach ($path in $paths) {
+            Get-ItemProperty $path -ErrorAction SilentlyContinue | Where-Object {
+                $_.DisplayName -and (-not $_.SystemComponent)
+            } | Select-Object DisplayName, DisplayVersion, Publisher
+        }
+        
+        return $apps | Sort-Object DisplayName -Unique
+    }
+    
+    # Pouziti winget
+    try {
+        $output = winget list 2>&1
+        return $output
+    } catch {
+        Write-Host "  CHYBA pri ziskavani seznamu software: $_" -ForegroundColor Red
+        return $null
+    }
+}
+
+function Show-InstalledSoftware {
+    Write-Header "Nainstalovaný software"
+    Write-Host ""
+    
+    if (Test-WingetAvailable) {
+        Write-Host "  Pouzivam Winget pro seznam software..." -ForegroundColor Cyan
+        Write-Host ""
+        winget list
+    } else {
+        Write-Host "  Winget neni dostupny. Zobrazuji z registru..." -ForegroundColor Yellow
+        Write-Host ""
+        $apps = Get-InstalledSoftwareList
+        
+        if ($apps) {
+            Write-Host "  {0,-50} {1,-15} {2}" -f "Nazev", "Verze", "Vydavatel" -ForegroundColor Cyan
+            Write-Host "  $("-" * 100)" -ForegroundColor DarkGray
+            foreach ($app in $apps) {
+                Write-Host "  {0,-50} {1,-15} {2}" -f $app.DisplayName, $app.DisplayVersion, $app.Publisher
+            }
+        } else {
+            Write-Host "  Zadny software nenalezen." -ForegroundColor Red
+        }
+    }
+}
+
+function Show-UpgradableSoftware {
+    Write-Header "Dostupne aktualizace software"
+    Write-Host ""
+    
+    if (-not (Test-WingetAvailable)) {
+        Write-Host "  CHYBA: Winget neni nainstalovan!" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "  Pro automaticke aktualizace software je potreba Winget." -ForegroundColor Yellow
+        Write-Host "  Winget je dostupny ve Windows 11 a novejsich verzich Windows 10." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  Instalace Winget:" -ForegroundColor Cyan
+        Write-Host "  1. Otevrete Microsoft Store" -ForegroundColor White
+        Write-Host "  2. Vyhledejte 'App Installer'" -ForegroundColor White
+        Write-Host "  3. Nainstalujte nebo aktualizujte" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  Nebo stahnete z: https://github.com/microsoft/winget-cli/releases" -ForegroundColor White
+        return
+    }
+    
+    Write-Host "  Hledam dostupne aktualizace..." -ForegroundColor Yellow
+    Write-Host ""
+    
+    try {
+        winget upgrade
+    } catch {
+        Write-Host "  CHYBA pri hledani aktualizaci: $_" -ForegroundColor Red
+    }
+}
+
+function Update-AllSoftware {
+    Write-Host ""
+    
+    if (-not (Test-WingetAvailable)) {
+        Write-Host "  CHYBA: Winget neni nainstalovan!" -ForegroundColor Red
+        Write-Host "  Nelze provest automatickou aktualizaci software." -ForegroundColor Red
+        return
+    }
+    
+    Write-Host "  Spoustim aktualizaci vseho software pres Winget..." -ForegroundColor Yellow
+    Write-Host "  POZOR: Toto muze trvat nekolik minut." -ForegroundColor DarkGray
+    Write-Host ""
+    
+    $confirm = Read-Host "  Skutecne chcete aktualizovat vsechny aplikace? (A/N)"
+    if ($confirm -ne "A" -and $confirm -ne "a") {
+        Write-Host "  Aktualizace zrusena." -ForegroundColor Yellow
+        return
+    }
+    
+    Write-Host ""
+    try {
+        winget upgrade --all --accept-source-agreements --accept-package-agreements
+        Write-Host ""
+        Write-Host "  Aktualizace dokoncena!" -ForegroundColor Green
+    } catch {
+        Write-Host "  CHYBA pri aktualizaci: $_" -ForegroundColor Red
+    }
+}
+
+function Get-UpdatesStatusShort {
+    try {
+        if (Test-WingetAvailable) {
+            $output = winget upgrade 2>&1 | Out-String
+            $lines = $output -split "`n"
+            $upgradeCount = 0
+            foreach ($line in $lines) {
+                if ($line -match "^\S+\s+\S+\s+\S+\s+\S+") {
+                    $upgradeCount++
+                }
+            }
+            if ($upgradeCount -gt 0) {
+                $upgradeCount-- # Odecist hlavicku
+            }
+            
+            if ($upgradeCount -gt 0) {
+                return "$upgradeCount dostupnych"
+            } else {
+                return "Aktualni"
+            }
+        } else {
+            return "Winget N/A"
+        }
+    } catch {
+        return "Neznamy"
+    }
+}
+
+# ==============================================================================
 #                      S U B - M E N U
 # ==============================================================================
 
@@ -1374,6 +1636,52 @@ function Show-Menu-Hardening {
     } while ($true)
 }
 
+# -- 8) Aktualizace a Software -------------------------------------------------
+function Show-Menu-UpdatesAndSoftware {
+    do {
+        Show-Banner
+        Write-SubHeader "AKTUALIZACE A SOFTWARE" @"
+  Pravidelne aktualizace Windows a nainstalovaného software jsou klicove
+  pro bezpecnost systemu. Zde muzete zkontrolovat dostupne aktualizace
+  Windows, zobrazit nainstalovaný software a aktualizovat aplikace pomoci
+  Winget (Windows Package Manager).
+"@
+
+        $updSt = Get-UpdatesStatusShort
+        $updC = if ($updSt -eq "Aktualni") { 'Green' } elseif ($updSt -match "dostupnych") { 'Red' } else { 'Yellow' }
+        
+        Write-Host "  Aktualni stav:" -ForegroundColor DarkGray
+        Write-Host "    Software aktualizace: " -NoNewline -ForegroundColor DarkGray
+        Write-Host "$updSt" -ForegroundColor $updC
+        Write-Host ""
+
+        Write-Host "  WINDOWS UPDATE:" -ForegroundColor Cyan
+        Write-MenuItem "1" "Zobrazit stav Windows aktualizaci"
+        Write-MenuItem "2" "Spustit instalaci Windows aktualizaci [DOPORUCENO]" Green
+        Write-Host ""
+        
+        Write-Host "  SOFTWARE (WINGET):" -ForegroundColor Cyan
+        Write-MenuItem "3" "Zobrazit nainstalovaný software"
+        Write-MenuItem "4" "Zobrazit dostupne aktualizace software"
+        Write-MenuItem "5" "Aktualizovat vsechny aplikace [DOPORUCENO]" Green
+        Write-Host ""
+        
+        Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
+        Write-Host ""
+
+        $c = Read-Host "  Vyberte volbu"
+        switch ($c) {
+            "1" { Show-WindowsUpdateStatus; Pause-Menu }
+            "2" { Start-WindowsUpdate; Pause-Menu }
+            "3" { Show-InstalledSoftware; Pause-Menu }
+            "4" { Show-UpgradableSoftware; Pause-Menu }
+            "5" { Update-AllSoftware; Pause-Menu }
+            "0" { return }
+            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
+        }
+    } while ($true)
+}
+
 # ==============================================================================
 #                       H L A V N I   M E N U
 # ==============================================================================
@@ -1450,6 +1758,14 @@ do {
     Write-Host "]" -ForegroundColor DarkGray
     Write-Host ""
 
+    $updQ = Get-UpdatesStatusShort
+    $updC = if ($updQ -eq "Aktualni") { 'Green' } elseif ($updQ -match "dostupnych") { 'Red' } else { 'Yellow' }
+    Write-Host "    8)  Aktualizace a Software" -ForegroundColor White -NoNewline
+    Write-Host "     [SW: " -NoNewline -ForegroundColor DarkGray
+    Write-Host "$updQ" -NoNewline -ForegroundColor $updC
+    Write-Host "]" -ForegroundColor DarkGray
+    Write-Host ""
+
     Write-Host "   10)  ZAPNOUT VSE (maximum zabezpeceni)" -ForegroundColor Green
     Write-Host "   99)  Aktualni stav - kompletni prehled" -ForegroundColor Cyan
     Write-Host ""
@@ -1466,6 +1782,7 @@ do {
         "5"  { Show-Menu-Sysmon }
         "6"  { Show-Menu-DNS }
         "7"  { Show-Menu-Hardening }
+        "8"  { Show-Menu-UpdatesAndSoftware }
         "10" { Enable-MaxSecurity; Pause-Menu }
         "99" { Show-FullStatus; Pause-Menu }
         "0"  {
