@@ -1645,15 +1645,10 @@ function Show-Menu-UpdatesAndSoftware {
   pro bezpecnost systemu. Zde muzete zkontrolovat dostupne aktualizace
   Windows, zobrazit nainstalovaný software a aktualizovat aplikace pomoci
   Winget (Windows Package Manager).
-"@
 
-        $updSt = Get-UpdatesStatusShort
-        $updC = if ($updSt -eq "Aktualni") { 'Green' } elseif ($updSt -match "dostupnych") { 'Red' } else { 'Yellow' }
-        
-        Write-Host "  Aktualni stav:" -ForegroundColor DarkGray
-        Write-Host "    Software aktualizace: " -NoNewline -ForegroundColor DarkGray
-        Write-Host "$updSt" -ForegroundColor $updC
-        Write-Host ""
+  POZNAMKA: Zjistovani stavu aktualizaci muze chvili trvat. Informace
+  o dostupnych aktualizacich se zobrazi po vyberu prislusne volby.
+"@
 
         Write-Host "  WINDOWS UPDATE:" -ForegroundColor Cyan
         Write-MenuItem "1" "Zobrazit stav Windows aktualizaci"
@@ -1758,12 +1753,7 @@ do {
     Write-Host "]" -ForegroundColor DarkGray
     Write-Host ""
 
-    $updQ = Get-UpdatesStatusShort
-    $updC = if ($updQ -eq "Aktualni") { 'Green' } elseif ($updQ -match "dostupnych") { 'Red' } else { 'Yellow' }
-    Write-Host "    8)  Aktualizace a Software" -ForegroundColor White -NoNewline
-    Write-Host "     [SW: " -NoNewline -ForegroundColor DarkGray
-    Write-Host "$updQ" -NoNewline -ForegroundColor $updC
-    Write-Host "]" -ForegroundColor DarkGray
+    Write-Host "    8)  Aktualizace a Software" -ForegroundColor White
     Write-Host ""
 
     Write-Host "   10)  ZAPNOUT VSE (maximum zabezpeceni)" -ForegroundColor Green
