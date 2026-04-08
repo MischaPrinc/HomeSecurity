@@ -268,19 +268,12 @@ function Get-TamperProtectionStatus {
 
 function Set-TamperProtection {
     param([bool]$Enabled)
-    try {
-        $val = if ($Enabled) { 5 } else { 4 }
-        Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows Defender\Features" -Name "TamperProtection" -Value $val -Type DWord -ErrorAction Stop
-        $state = if ($Enabled) { "Zapnuto" } else { "Vypnuto" }
-        Write-Host "  Tamper Protection: $state" -ForegroundColor Green
-        if ($Enabled) {
-            Write-Host "  POZOR: Muze vyzadovat restart nebo zapnuti pres Windows Security." -ForegroundColor Yellow
-        } else {
-            Write-Host "  VAROVANI: Malware muze manipulovat s Defenderem!" -ForegroundColor Red
-        }
-    } catch {
-        Write-Host "  CHYBA: $_" -ForegroundColor Red
-        Write-Host "  TIP: Nastavte pres Windows Zabezpeceni > Ochrana pred viry > Nastaveni." -ForegroundColor Yellow
+    $requestedState = if ($Enabled) { "Zapnuto" } else { "Vypnuto" }
+    Write-Host "  Tamper Protection nelze spolehlive menit timto skriptem." -ForegroundColor Yellow
+    Write-Host "  Pozadovany stav: $requestedState" -ForegroundColor DarkGray
+    Write-Host "  Nastavte rucne: Windows Zabezpeceni > Ochrana pred viry a hrozbami > Spravovat nastaveni." -ForegroundColor Yellow
+    if (-not $Enabled) {
+        Write-Host "  VAROVANI: Vypnuti Tamper Protection snizuje odolnost Defenderu proti manipulaci." -ForegroundColor Red
     }
 }
 
@@ -445,17 +438,31 @@ function Get-PSLoggingStatus {
 
 function Set-PSLogging {
     param([bool]$Enabled)
-    $regPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging"
+    $baseRegPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell"
+    $regPath = Join-Path $baseRegPath "ScriptBlockLogging"
     try {
         if ($Enabled) {
-            if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+            if (-not (Test-Path $baseRegPath)) { New-Item -Path $baseRegPath -Force | Out-Null }
+            New-Item -Path $baseRegPath -Name "ModuleLogging" -Force | Out-Null
+            New-Item -Path $baseRegPath -Name "ScriptBlockLogging" -Force | Out-Null
+            New-Item -Path $baseRegPath -Name "Transcription" -Force | Out-Null
+            Set-ItemProperty -Path (Join-Path $baseRegPath "ModuleLogging") -Name "EnableModuleLogging" -Value 1 -Type DWord -Force -ErrorAction Stop
             Set-ItemProperty -Path $regPath -Name "EnableScriptBlockLogging" -Value 1 -Type DWord -ErrorAction Stop
-            Write-Host "  PS Script Block Logging: Zapnuto" -ForegroundColor Green
+            Set-ItemProperty -Path (Join-Path $baseRegPath "Transcription") -Name "EnableTranscripting" -Value 1 -Type DWord -Force -ErrorAction Stop
+            auditpol /set /subcategory:"{0cce923f-69ae-11d9-bed3-505054503030}" /success:enable /failure:enable | Out-Null
+            Write-Host "  PowerShell logging + Process Creation audit: Zapnuto" -ForegroundColor Green
         } else {
-            if (Test-Path $regPath) {
-                Set-ItemProperty -Path $regPath -Name "EnableScriptBlockLogging" -Value 0 -Type DWord -ErrorAction Stop
+            if (Test-Path (Join-Path $baseRegPath "ModuleLogging")) {
+                Set-ItemProperty -Path (Join-Path $baseRegPath "ModuleLogging") -Name "EnableModuleLogging" -Value 0 -Type DWord -Force -ErrorAction Stop
             }
-            Write-Host "  PS Script Block Logging: Vypnuto" -ForegroundColor Yellow
+            if (Test-Path $regPath) {
+                Set-ItemProperty -Path $regPath -Name "EnableScriptBlockLogging" -Value 0 -Type DWord -Force -ErrorAction Stop
+            }
+            if (Test-Path (Join-Path $baseRegPath "Transcription")) {
+                Set-ItemProperty -Path (Join-Path $baseRegPath "Transcription") -Name "EnableTranscripting" -Value 0 -Type DWord -Force -ErrorAction Stop
+            }
+            auditpol /set /subcategory:"{0cce923f-69ae-11d9-bed3-505054503030}" /success:disable /failure:disable | Out-Null
+            Write-Host "  PowerShell logging + Process Creation audit: Vypnuto" -ForegroundColor Yellow
         }
     } catch { Write-Host "  CHYBA: $_" -ForegroundColor Red }
 }
@@ -464,7 +471,7 @@ function Set-PSLogging {
 #                          S Y S M O N
 # ==============================================================================
 $SysmonExeUrl     = "https://live.sysinternals.com/Sysmon64.exe"
-$SysmonConfigUrl  = "https://raw.githubusercontent.com/olafhartong/sysmon-modular/master/sysmonconfig-mde-augment.xml"
+$SysmonConfigUrl  = "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/refs/heads/master/sysmonconfig-export.xml"
 $SysmonDir        = "$env:ProgramData\Sysmon"
 $SysmonExePath    = "$SysmonDir\Sysmon64.exe"
 $SysmonConfigPath = "$SysmonDir\sysmonconfig.xml"
@@ -692,9 +699,13 @@ function Set-LMHashState {
 function Get-StickyKeysStatus {
     try {
         $regPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sethc.exe"
-        if (-not (Test-Path $regPath)) { return "Nezabezpeceno" }
+        if (-not (Test-Path $regPath)) { return "Vychozi stav (bezpecne)" }
         $val = Get-ItemProperty -Path $regPath -Name "Debugger" -ErrorAction SilentlyContinue
-        if ($null -eq $val -or $val.Debugger -ne "C:\Windows\System32\cmd.exe") { "Nezabezpeceno" } else { "Zabezpeceno" }
+        if ($null -eq $val -or [string]::IsNullOrWhiteSpace($val.Debugger)) {
+            "Vychozi stav (bezpecne)"
+        } else {
+            "Riziko - Debugger nastaven: $($val.Debugger)"
+        }
     } catch { "Neznamy" }
 }
 
@@ -703,12 +714,17 @@ function Set-StickyKeysState {
     $regPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sethc.exe"
     try {
         if ($Secured) {
-            if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
-            Set-ItemProperty -Path $regPath -Name "Debugger" -Value "C:\Windows\System32\cmd.exe" -Type String -ErrorAction Stop
-            Write-Host "  Zneuziti 'Sticky Keys' (sethc.exe): Zabezpeceno" -ForegroundColor Green
+            if (Test-Path $regPath) {
+                Remove-ItemProperty -Path $regPath -Name "Debugger" -ErrorAction SilentlyContinue
+                $remaining = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
+                if ($remaining -and $remaining.PSObject.Properties.Name.Count -le 4) {
+                    Remove-Item -Path $regPath -Force -ErrorAction SilentlyContinue
+                }
+            }
+            Write-Host "  Sticky Keys: Odstranen zneuzitelny Debugger a obnoven vychozi stav." -ForegroundColor Green
         } else {
-            if (Test-Path $regPath) { Remove-ItemProperty -Path $regPath -Name "Debugger" -ErrorAction SilentlyContinue }
-            Write-Host "  Zneuziti 'Sticky Keys' (sethc.exe): Obnoveno na vychozi" -ForegroundColor Yellow
+            Write-Host "  Z bezpecnostnich duvodu skript neumoznuje nastavit Debugger pro sethc.exe." -ForegroundColor Yellow
+            Write-Host "  Vychozi stav bez Debuggeru je pro domaci PC spravna volba." -ForegroundColor DarkGray
         }
     } catch { Write-Host "  CHYBA: $_" -ForegroundColor Red }
 }
@@ -759,22 +775,28 @@ function Show-BitLockerHelp {
 
 $DNS_PROFILES = [ordered]@{
     "cloudflare_malware" = @{
-        Name     = "Cloudflare - Blokace malware"
-        Primary  = "1.1.1.2"
-        Secondary = "1.0.0.2"
-        Info     = "Blokuje pristup ke znamym skodlivym domenam (phishing, malware C2)."
+        Name        = "Cloudflare - Blokace malware"
+        Primary     = "1.1.1.2"
+        Secondary   = "1.0.0.2"
+        PrimaryIPv6  = "2606:4700:4700::1112"
+        SecondaryIPv6 = "2606:4700:4700::1002"
+        Info        = "Blokuje pristup ke znamym skodlivym domenam (phishing, malware C2)."
     }
     "cloudflare_family" = @{
-        Name     = "Cloudflare - Blokace malware + obsah pro dospele"
-        Primary  = "1.1.1.3"
-        Secondary = "1.0.0.3"
-        Info     = "Blokuje malware domeny + obsah pro dospele (family filter)."
+        Name        = "Cloudflare - Blokace malware + obsah pro dospele"
+        Primary     = "1.1.1.3"
+        Secondary   = "1.0.0.3"
+        PrimaryIPv6  = "2606:4700:4700::1113"
+        SecondaryIPv6 = "2606:4700:4700::1003"
+        Info        = "Blokuje malware domeny + obsah pro dospele (family filter)."
     }
     "cloudflare_standard" = @{
-        Name     = "Cloudflare - Standardni (bez filtrace)"
-        Primary  = "1.1.1.1"
-        Secondary = "1.0.0.1"
-        Info     = "Rychle a soukrome DNS bez filtrace obsahu."
+        Name        = "Cloudflare - Standardni (bez filtrace)"
+        Primary     = "1.1.1.1"
+        Secondary   = "1.0.0.1"
+        PrimaryIPv6  = "2606:4700:4700::1111"
+        SecondaryIPv6 = "2606:4700:4700::1001"
+        Info        = "Rychle a soukrome DNS bez filtrace obsahu."
     }
 }
 
@@ -865,10 +887,16 @@ function Set-SecureDNS {
     }
     Write-Host ""
     Write-Host "  Nastavuji DNS: $($prof.Name)" -ForegroundColor Yellow
-    Write-Host "  Servery: $($prof.Primary), $($prof.Secondary)" -ForegroundColor DarkGray
+    Write-Host "  IPv4: $($prof.Primary), $($prof.Secondary)" -ForegroundColor DarkGray
+    if ($prof.PrimaryIPv6) {
+        Write-Host "  IPv6: $($prof.PrimaryIPv6), $($prof.SecondaryIPv6)" -ForegroundColor DarkGray
+    }
     foreach ($adapter in $adapters) {
         try {
-            Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses @($prof.Primary, $prof.Secondary) -ErrorAction Stop
+            Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses @($prof.Primary, $prof.Secondary) -AddressFamily IPv4 -ErrorAction Stop
+            if ($prof.PrimaryIPv6) {
+                Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses @($prof.PrimaryIPv6, $prof.SecondaryIPv6) -AddressFamily IPv6 -ErrorAction Stop
+            }
             Write-Host "    [OK] $($adapter.Name)" -ForegroundColor Green
         } catch {
             Write-Host "    [CHYBA] $($adapter.Name): $_" -ForegroundColor Red
@@ -980,6 +1008,7 @@ function Enable-MaxSecurity {
     Set-SmartScreen -Mode "RequireAdmin"
     Set-EdgeSmartScreen -Enabled $true
     Set-FirewallState -Enabled $true
+    Write-Host "  Vzdalena plocha (RDP): zakazuji (pro domaci PC doporuceno)..." -ForegroundColor DarkGray
     Set-RDPState -Disabled $true
     Set-SMBv1State -Enabled $false
     Set-LLMNRState -Disabled $true
@@ -1034,10 +1063,10 @@ function Set-OfficeSecurityRegistry {
 
 function Set-DefenderSandboxing {
     param([bool]$Enabled)
-    $val = if ($Enabled) { 1 } else { 0 }
+    $strVal = if ($Enabled) { "1" } else { "0" }
     Write-Host "  Nastavuji Defender sandboxing..." -ForegroundColor Yellow
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" -Name "MP_FORCE_USE_SANDBOX" -Value $val -Type DWord -ErrorAction SilentlyContinue
-    Write-Host "  Defender sandboxing nastaven na: $val" -ForegroundColor Green
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" -Name "MP_FORCE_USE_SANDBOX" -Value $strVal -Type String -ErrorAction SilentlyContinue
+    Write-Host "  Defender sandboxing nastaven na: $strVal (restart vyzadovan)" -ForegroundColor Green
 }
 
 function Update-DefenderSignatures {
@@ -1398,7 +1427,7 @@ function Show-Menu-DefenderASR {
         Write-MenuItem "12" "Controlled Folder Access -> VYPNOUT"
         Write-Host ""
         Write-MenuItem "13" "Tamper Protection -> ZAPNOUT [DOPORUCENO]" Green
-        Write-MenuItem "14" "Tamper Protection -> VYPNOUT"
+        Write-MenuItem "14" "Tamper Protection -> VYPNOUT (nedoporuceno)"
         Write-Host ""
         Write-MenuItem "15" "Nastavit registry pro zabezpeceni Office [DOPORUCENO]" Green
         Write-MenuItem "16" "Nastavit Defender sandboxing (zapnout) [DOPORUCENO]" Green
@@ -1642,8 +1671,8 @@ function Show-Menu-Hardening {
         Show-Banner
         Write-SubHeader "DALSI DOPORUCENA NASTAVENI" @"
   LM Hash: Stary a slaby format pro ukladani hesel. Je dobre ho zakazat.
-  Sticky Keys: Zneuziti funkce pro usnadneni pristupu (sethc.exe) je
-  popularni technika pro ziskani prav administratora.
+    Sticky Keys: Pokud je u sethc.exe nastaven Debugger, jde o bezpecnostni
+    riziko. Bezpecny stav je vychozi chovani bez vlastniho Debuggeru.
   BitLocker: Sifrovani disku je klicova ochrana dat pri kradezi zarizeni.
 "@
 
@@ -1657,8 +1686,8 @@ function Show-Menu-Hardening {
         Write-MenuItem "1" "Zakazat ukladani LM hashe [DOPORUCENO]" Green
         Write-MenuItem "2" "Povolit ukladani LM hashe"
         Write-Host ""
-        Write-MenuItem "3" "Zabezpecit zneuziti Sticky Keys [DOPORUCENO]" Green
-        Write-MenuItem "4" "Obnovit vychozi chovani Sticky Keys"
+        Write-MenuItem "3" "Odstranit Debugger u Sticky Keys [DOPORUCENO]" Green
+        Write-MenuItem "4" "Ponechat vychozi bezpecny stav Sticky Keys"
         Write-Host ""
         Write-MenuItem "5" "Zobrazit stav a navod pro BitLocker"
         Write-Host ""

@@ -142,11 +142,11 @@ function Show-SuccessfulLogins {
                 $time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm:ss")
                 
                 # Parse properties directly (Constrained Language Mode compatible)
-                $targetUser = $_.Properties[5].Value
-                $targetDomain = $_.Properties[6].Value
-                $logonType = $_.Properties[8].Value
-                $ipAddress = $_.Properties[18].Value
-                $workstation = $_.Properties[11].Value
+                $targetUser    = if ($_.Properties.Count -gt 5)  { $_.Properties[5].Value  } else { "N/A" }
+                $targetDomain  = if ($_.Properties.Count -gt 6)  { $_.Properties[6].Value  } else { "N/A" }
+                $logonType     = if ($_.Properties.Count -gt 8)  { $_.Properties[8].Value  } else { "N/A" }
+                $workstation   = if ($_.Properties.Count -gt 11) { $_.Properties[11].Value } else { "N/A" }
+                $ipAddress     = if ($_.Properties.Count -gt 18) { $_.Properties[18].Value } else { "N/A" }
                 
                 # Filtruj systemove ucty a service logony
                 if ($targetUser -match '^(SYSTEM|LOCAL SERVICE|NETWORK SERVICE|DWM-\d+|UMFD-\d+|\$)$') {
@@ -534,7 +534,7 @@ function Test-SuspiciousCommand {
         @{ Pattern = '-[Ww](indowStyle)?\s+Hidden'; Description = 'Hidden Window'; Severity = 'High' }
         @{ Pattern = '-[Nn]o[Pp](rofile)?'; Description = 'No Profile'; Severity = 'Medium' }
         @{ Pattern = '-[Nn]on[Ii](nteractive)?'; Description = 'Non-Interactive'; Severity = 'Medium' }
-        @{ Pattern = ([char]73).ToString() + ([char]69).ToString() + ([char]88).ToString() + '|Invoke-Expression'; Description = 'Invoke-Expression (IEX)'; Severity = 'High' }
+        @{ Pattern = 'IEX|Invoke-Expression'; Description = 'Invoke-Expression (IEX)'; Severity = 'High' }
         @{ Pattern = 'Invoke-WebRequest|iwr|wget|curl.*http'; Description = 'Download Cradle'; Severity = 'High' }
         @{ Pattern = 'Net\.WebClient|DownloadString|DownloadFile'; Description = 'Web Download'; Severity = 'High' }
         @{ Pattern = 'Start-Process.*-Verb\s+RunAs'; Description = 'RunAs Elevation'; Severity = 'Medium' }
@@ -615,10 +615,11 @@ function Show-PowerShellHistory {
                 $message = $event.Message
                 
                 # Extrahuj ScriptBlock text
-                $scriptBlock = if ($message -match 'ScriptBlock text.*?:\s*(.+)') { 
-                    $matches[1].Trim() 
-                } else { 
-                    $message 
+                # Pouzij strukturovany atribut - spolehlivejsi nez parsovani textu zpravy
+                $scriptBlock = if ($event.Properties.Count -gt 2 -and $event.Properties[2].Value) {
+                    $event.Properties[2].Value.ToString()
+                } else {
+                    $message
                 }
                 
                 # Zkrat velmi dlouhe prikazy
@@ -703,7 +704,7 @@ function Show-ProcessCreationHistory {
                 $commandLine = if ($event.Properties.Count -gt 8) { $event.Properties[8].Value } else { "" }
                 
                 # Filtruj pouze PowerShell, CMD, WMI a dalsi zajimave procesy
-                if ($newProcessName -notmatch '(powershell|cmd\.exe|wmic\.exe|mshta\.exe|regsvr32\.exe|rundll32\.exe|cscript\.exe|wscript\.exe)') {
+                if ($newProcessName -notmatch '(powershell|pwsh|cmd\.exe|wmic\.exe|mshta\.exe|regsvr32\.exe|rundll32\.exe|cscript\.exe|wscript\.exe)') {
                     continue
                 }
                 
@@ -793,7 +794,7 @@ function Show-SysmonHistory {
                 $hashes = if ($event.Properties.Count -gt 24) { $event.Properties[24].Value } else { "" }
                 
                 # Filtruj pouze zajimave procesy
-                if ($image -notmatch '(powershell|cmd\.exe|wmic\.exe|mshta\.exe|regsvr32\.exe|rundll32\.exe|cscript\.exe|wscript\.exe)') {
+                if ($image -notmatch '(powershell|pwsh|cmd\.exe|wmic\.exe|mshta\.exe|regsvr32\.exe|rundll32\.exe|cscript\.exe|wscript\.exe)') {
                     continue
                 }
                 

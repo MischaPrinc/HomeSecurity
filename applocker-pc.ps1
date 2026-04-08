@@ -66,7 +66,7 @@ function Write-SubHeader {
 
 function Write-Status {
     param([string]$Label, [string]$Value, [ConsoleColor]$Color = 'Yellow')
-    $padded = $Label.PadRight(35)
+    $padded = $Label.PadRight(30)
     Write-Host "  $padded : " -NoNewline
     Write-Host $Value -ForegroundColor $Color
 }
@@ -79,8 +79,7 @@ function Write-MenuItem {
 
 function Pause-Menu {
     Write-Host ""
-    Write-Host "  Stisknete libovolnou klavesu pro navrat..." -ForegroundColor DarkGray
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    Read-Host "  Stisknete Enter pro navrat do menu"
 }
 
 function Show-Banner {
@@ -485,7 +484,7 @@ function Add-WDACPublisherRule {
             New-CIPolicy -Level Hash -FilePath $WDACCustomXml -UserPEs -ScanPath $env:windir\Temp -ErrorAction Stop
         }
 
-        $rules = New-CIPolicyRule -Level Publisher -DriverFilePath $file -Fallback Hash -ErrorAction Stop
+        $rules = New-CIPolicyRule -Level Publisher -FilePath $file -Fallback Hash -ErrorAction Stop
         Merge-CIPolicy -PolicyPaths $WDACCustomXml -Rules $rules -OutputFilePath $WDACCustomXml -ErrorAction Stop
 
         Write-Host "  [OK] Publisher pravidlo pridano ze souboru: $file" -ForegroundColor Green
@@ -517,7 +516,7 @@ function Add-WDACHashRule {
             New-CIPolicy -Level Hash -FilePath $WDACCustomXml -UserPEs -ScanPath $env:windir\Temp -ErrorAction Stop
         }
 
-        $rules = New-CIPolicyRule -Level Hash -DriverFilePath $file -ErrorAction Stop
+        $rules = New-CIPolicyRule -Level Hash -FilePath $file -ErrorAction Stop
         Merge-CIPolicy -PolicyPaths $WDACCustomXml -Rules $rules -OutputFilePath $WDACCustomXml -ErrorAction Stop
 
         $hash = (Get-FileHash $file -Algorithm SHA256).Hash
@@ -1003,8 +1002,13 @@ function Add-TrustedPublisher {
         Write-Host "  Platnost:   $($cert.NotBefore.ToString('dd.MM.yyyy')) - $($cert.NotAfter.ToString('dd.MM.yyyy'))" -ForegroundColor DarkGray
         Write-Host ""
 
+        if ($cert.NotAfter -lt (Get-Date)) {
+            Write-Host "  [VAROVANI] Certifikat je EXPIROVAN (do: $($cert.NotAfter.ToString('dd.MM.yyyy')))!" -ForegroundColor Red
+            Write-Host "  Expirovanhy certifikat nemusí poskytnout ochranu." -ForegroundColor Yellow
+        }
+
         $store = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPublisher", "CurrentUser")
-        $store.Open("MaxAllowed")
+        $store.Open("ReadWrite")
         $store.Add($cert)
         $store.Close()
 
