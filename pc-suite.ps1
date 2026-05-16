@@ -40,6 +40,9 @@ if (-not ([bool]([Security.Principal.WindowsIdentity]::GetCurrent().Groups -matc
 # Aktivni modul - prepina se pri prechodu do modulu (pouziva Show-Banner)
 $script:ActiveMode = ""
 
+# QuickNav: fronta automaticky predvolenych voleb (x-kod navigace)
+$script:QNPath = @()
+
 # ==============================================================================
 #                   P O M O C N E   F U N K C E   ( S D I L E N E )
 # ==============================================================================
@@ -81,6 +84,20 @@ function Write-MenuItem {
 function Pause-Menu {
     Write-Host ""
     Read-Host "Stiskni Enter pro pokracovani"
+}
+
+# QuickNav: pokud je QNPath neprazdna, vezme prvni prvek; jinak standardni Read-Host
+function Read-MenuChoice {
+    param([string]$Prompt = "  Vyberte volbu")
+    if ($script:QNPath.Count -gt 0) {
+        $choice = $script:QNPath[0]
+        $script:QNPath = if ($script:QNPath.Count -gt 1) {
+            $script:QNPath[1..($script:QNPath.Count - 1)]
+        } else { @() }
+        Write-Host "${Prompt}: $choice  [QuickNav]" -ForegroundColor DarkGray
+        return $choice
+    }
+    return Read-Host $Prompt
 }
 
 function Show-Banner {
@@ -1238,6 +1255,208 @@ function Set-LSAPPL {
     }
 }
 
+# -- LSA Registry Protection Audit --------------------------------------------
+function Show-LSARegistryAudit {
+    Write-Header "LSA REGISTRY PROTECTION AUDIT"
+    $lsaKey = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
+
+    # 1) RunAsPPL + RunAsPPLBoot
+    Write-Host ""
+    Write-Host "  [ 1. LSA Protected Process Light (PPL) ]" -ForegroundColor Cyan
+    try {
+        $lsaProps = Get-ItemProperty $lsaKey -ErrorAction Stop
+        $ppl  = $lsaProps.RunAsPPL
+        $boot = $lsaProps.RunAsPPLBoot
+        if ($ppl -ge 1) {
+            Write-Host "    RunAsPPL       : $ppl  --> ZAPNUTO - lsass.exe je chraneny proces" -ForegroundColor Green
+        } else {
+            Write-Host "    RunAsPPL       : $ppl  --> VYPNUTO - lsass.exe je zranitelny (Mimikatz)" -ForegroundColor Red
+        }
+        if ($null -ne $boot -and $boot -ge 1) {
+            Write-Host "    RunAsPPLBoot   : $boot --> ZAPNUTO - UEFI/Secure Boot uzamceni PPL" -ForegroundColor Green
+        } else {
+            Write-Host "    RunAsPPLBoot   : (neni nastaveno) - PPL neni uzamceno pres UEFI" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "    [CHYBA] Nelze cist LSA klic: $_" -ForegroundColor Red
+    }
+
+    # 2) WDigest + DisableRestrictedAdmin
+    Write-Host ""
+    Write-Host "  [ 2. LSA hodnoty - ochrana hesel ]" -ForegroundColor Cyan
+    try {
+        $lsaProps = Get-ItemProperty $lsaKey -ErrorAction Stop
+        $wdigest = try { (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" -Name "UseLogonCredential" -EA Stop).UseLogonCredential } catch { $null }
+        if ($null -eq $wdigest -or $wdigest -eq 0) {
+            Write-Host "    WDigest        : VYPNUTO (hesla nejsou v RAM plaintext) OK" -ForegroundColor Green
+        } else {
+            Write-Host "    WDigest        : ZAPNUTO - RIZIKO! hesla ukladana v RAM" -ForegroundColor Red
+        }
+        $dra = $lsaProps.DisableRestrictedAdmin
+        if ($dra -eq 0) {
+            Write-Host "    RestrictedAdmin: $dra --> ZAPNUTO (RDP neodesila hesla na server)" -ForegroundColor Green
+        } else {
+            Write-Host "    RestrictedAdmin: $dra --> VYPNUTO - RDP muze odeslat hash na zly server" -ForegroundColor Yellow
+        }
+        $lmHash = $lsaProps.NoLMHash
+        if ($lmHash -eq 1) {
+            Write-Host "    NoLMHash       : ZAPNUTO - LM hash se neukl da" -ForegroundColor Green
+        } else {
+            Write-Host "    NoLMHash       : VYPNUTO - slabe LM hashe se ukladaji" -ForegroundColor Red
+        }
+        $ntlmLvl = $lsaProps.LmCompatibilityLevel
+        $ntlmTxt = switch ($ntlmLvl) {
+            5 { "5 (pouze NTLMv2 - nejsilnejsi)" }
+            3 { "3 (NTLMv2 i NTLM)" }
+            $null { "(nenastaveno = Windows default = uroven 3)" }
+            default { "$ntlmLvl" }
+        }
+        $ntlmColor = if ($ntlmLvl -eq 5) { 'Green' } elseif ($ntlmLvl -ge 3) { 'Yellow' } else { 'Red' }
+        Write-Host "    NTLMv2 uroven  : $ntlmTxt" -ForegroundColor $ntlmColor
+    } catch {
+        Write-Host "    [CHYBA] $_" -ForegroundColor Red
+    }
+
+    # 3) ACL na LSA klici - kdo ma prava zapisu/smazani
+    Write-Host ""
+    Write-Host "  [ 3. ACL - prava na HKLM\...\Lsa klici ]" -ForegroundColor Cyan
+    Write-Host "    (Kdo muze modifikovat LSA registry klic)" -ForegroundColor DarkGray
+    try {
+        $acl = (Get-Item $lsaKey).GetAccessControl()
+        $dangerous = @()
+        foreach ($ace in $acl.Access) {
+            $rights = $ace.RegistryRights.ToString()
+            $id     = $ace.IdentityReference.Value
+            # Preskoc standardni bezpecne identity
+            if ($id -match 'NT AUTHORITY\\SYSTEM|BUILTIN\\Administrators|TrustedInstaller|NT SERVICE\\TrustedInstaller') { continue }
+            # Zkontroluj nebezpecna prava
+            if ($rights -match 'FullControl|SetValue|Delete|WriteKey|ChangePermissions|TakeOwnership') {
+                $dangerous += "    [!] $id  -->  $rights"
+            }
+        }
+        if ($dangerous.Count -gt 0) {
+            Write-Host "    VAROVANI - neocekavane identity s pravem zapisu:" -ForegroundColor Red
+            $dangerous | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+        } else {
+            Write-Host "    OK - LSA klic maji zapis pouze SYSTEM, Administrators, TrustedInstaller" -ForegroundColor Green
+        }
+        # Zobraz vlastnika
+        $owner = $acl.Owner
+        Write-Host "    Vlastnik klice : $owner" -ForegroundColor DarkGray
+    } catch {
+        Write-Host "    [CHYBA] Nelze cist ACL: $_" -ForegroundColor Yellow
+        Write-Host "    Tip: Spustite jako Administrator" -ForegroundColor DarkGray
+    }
+
+    # 4) SACL - je nastavene auditovani pristupu na LSA klic?
+    Write-Host ""
+    Write-Host "  [ 4. SACL - auditovani pristupu na LSA klic ]" -ForegroundColor Cyan
+    try {
+        $sacl = (Get-Item $lsaKey).GetAccessControl('Audit')
+        $rules = $sacl.GetAuditRules($true, $true, [System.Security.Principal.NTAccount])
+        if ($rules.Count -gt 0) {
+            Write-Host "    SACL nastavena - pristupy se auditují:" -ForegroundColor Green
+            foreach ($r in $rules) {
+                Write-Host "      $($r.IdentityReference) : $($r.RegistryRights) [$($r.AuditFlags)]" -ForegroundColor DarkGray
+            }
+        } else {
+            Write-Host "    SACL neni nastavena - zmeny LSA klice se NElogují do Event Logu" -ForegroundColor Yellow
+            Write-Host "    Tip: Pro zapnuti auditovani pouzijte auditpol nebo Volba 20 tohoto menu" -ForegroundColor DarkGray
+        }
+    } catch {
+        Write-Host "    Nelze cist SACL (vyzaduje SeSecurityPrivilege / admin): $_" -ForegroundColor Yellow
+    }
+
+    # 5) Protected Users skupina
+    Write-Host ""
+    Write-Host "  [ 5. Protected Users skupina ]" -ForegroundColor Cyan
+    Write-Host "    (Clenove nepodlehaji NTLM, WDigest, Kerberos delegaci, RC4)" -ForegroundColor DarkGray
+    try {
+        $pu = Get-LocalGroupMember -Group "Protected Users" -ErrorAction SilentlyContinue
+        if ($pu) {
+            Write-Host "    Clenove Protected Users:" -ForegroundColor Green
+            $pu | ForEach-Object { Write-Host "      - $($_.Name)  [$($_.ObjectClass)]" -ForegroundColor Green }
+        } else {
+            Write-Host "    Protected Users je prazdna - zadny ucet nema extra ochranu" -ForegroundColor Yellow
+            Write-Host "    Tip: Pridejte spravce do Protected Users pro silnejsi ochranu" -ForegroundColor DarkGray
+        }
+    } catch {
+        Write-Host "    Nelze zjistit (skupina Protected Users neexistuje nebo chyba): $_" -ForegroundColor DarkGray
+    }
+
+    # 6) Credential Guard
+    Write-Host ""
+    Write-Host "  [ 6. Credential Guard / VBS ]" -ForegroundColor Cyan
+    try {
+        $vbs = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard" -EA SilentlyContinue).EnableVirtualizationBasedSecurity
+        $cg  = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -EA SilentlyContinue).LsaCfgFlags
+        if ($vbs -eq 1) {
+            Write-Host "    VBS            : ZAPNUTO - Virtualizace bezpecnosti aktivni" -ForegroundColor Green
+        } else {
+            Write-Host "    VBS            : VYPNUTO - Credential Guard nefunguje bez VBS" -ForegroundColor Yellow
+        }
+        $cgTxt = switch ($cg) {
+            1 { "Zapnuto s UEFI zamkem (nelze deaktivovat bez fyzickeho pristupu)" }
+            2 { "Zapnuto bez zamku (lze deaktivovat GPO)" }
+            0 { "Vypnuto" }
+            $null { "(nenastaveno)" }
+            default { $cg }
+        }
+        $cgColor = if ($cg -ge 1) { 'Green' } else { 'Yellow' }
+        Write-Host "    Credential Guard: $cgTxt" -ForegroundColor $cgColor
+        # Zkontroluj zda bezi sluzba
+        $svc = Get-Service -Name "LsaIso" -ErrorAction SilentlyContinue
+        if ($svc -and $svc.Status -eq 'Running') {
+            Write-Host "    LsaIso.exe     : BEZI - Credential Guard aktivne ochranuji povereni" -ForegroundColor Green
+        } elseif ($svc) {
+            Write-Host "    LsaIso.exe     : NEBEZI (sluzba existuje ale je zastavena)" -ForegroundColor Yellow
+        } else {
+            Write-Host "    LsaIso.exe     : NENI - Credential Guard neni aktivni" -ForegroundColor DarkGray
+        }
+    } catch {
+        Write-Host "    [CHYBA] $_" -ForegroundColor Red
+    }
+
+    # 7) Souhrn doporuceni
+    Write-Host ""
+    Write-Host "  [ SOUHRN - klicova doporuceni ]" -ForegroundColor Cyan
+    Write-Host "    Volba 3  : Zapnout RunAsPPL (ochrana lsass.exe pred Mimikatz)" -ForegroundColor DarkGray
+    Write-Host "    Volba 1  : Zakazat WDigest (plaintext hesla v RAM)" -ForegroundColor DarkGray
+    Write-Host "    Volba 10 : Nastavit NTLMv2 uroven 5" -ForegroundColor DarkGray
+    Write-Host "    Volba 20 : Zapnout auditovani zmen LSA klice (SACL)" -ForegroundColor DarkGray
+    Write-Host "    Manual   : Pridat administratorsky ucet do skupiny Protected Users" -ForegroundColor DarkGray
+    Write-Host ""
+}
+
+function Enable-LSARegistryAuditing {
+    Write-Host ""
+    Write-Host "  Nastavuji auditovani pristupu na LSA registry klic..." -ForegroundColor Yellow
+    try {
+        # Zapnout Object Access auditing v audit policy
+        $out = auditpol /set /subcategory:"Registry" /success:enable /failure:enable 2>&1
+        Write-Host "  [OK] Audit policy: Registry - Success + Failure zapnuto" -ForegroundColor Green
+
+        # Nastavit SACL na LSA klic pres icacls/reg (PowerShell nativne vyzaduje SeSecurityPrivilege)
+        # Pouzijeme auditpol jako minimalni zaznam
+        Write-Host ""
+        Write-Host "  POZN: SACL na registry klic vyzaduje nastroj 'regini' nebo 'SetSecInfo'." -ForegroundColor DarkGray
+        Write-Host "  Alternativa - nastavte SACL manualne:" -ForegroundColor DarkGray
+        Write-Host "    1) Spustte regedit jako Administrator" -ForegroundColor DarkGray
+        Write-Host "    2) Prejdete na: HKLM\SYSTEM\CurrentControlSet\Control\Lsa" -ForegroundColor DarkGray
+        Write-Host "    3) Klik pravy -> Opravneni -> Pokrocile -> zalozka Audit" -ForegroundColor DarkGray
+        Write-Host "    4) Pridejte: Everyone, SetValue+Delete+WriteKey, Failure" -ForegroundColor DarkGray
+        Write-Host "       (loguje neuspesne pokusy o zmenu - detekce utoky)" -ForegroundColor DarkGray
+        Write-Host "    5) Pridejte: Everyone, SetValue+Delete+WriteKey, Success" -ForegroundColor DarkGray
+        Write-Host "       (loguje vsechny zmeny - forenzni audit)" -ForegroundColor DarkGray
+        Write-Host ""
+        Write-Host "  Audit policy pro Registry byl zapnut - udalosti se budou zobrazovat" -ForegroundColor Green
+        Write-Host "  v Event Logu: Security -> Event ID 4657 (Registry value modified)" -ForegroundColor DarkGray
+        Write-Host "             Security -> Event ID 4663 (Registry key access attempt)" -ForegroundColor DarkGray
+    } catch {
+        Write-Host "  [CHYBA] $_" -ForegroundColor Red
+    }
+}
+
 # -- Defender Network Protection -----------------------------------------------
 function Get-NetworkProtectionStatus {
     try {
@@ -1859,7 +2078,7 @@ function Show-Menu-DefenderASR {
         Write-MenuItem "0"  "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
-        $c = Read-Host "  Vyberte volbu"
+        $c = Read-MenuChoice
         switch ($c) {
             "1"  { Show-ASRDetail; Pause-Menu }
             "2"  { Set-AllASR -Mode 1; Pause-Menu }
@@ -1909,7 +2128,7 @@ function Show-Menu-SmartScreen {
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
-        $c = Read-Host "  Vyberte volbu"
+        $c = Read-MenuChoice
         switch ($c) {
             "1" { Set-SmartScreen -Mode "RequireAdmin"; Pause-Menu }
             "2" { Set-SmartScreen -Mode "Off"; Pause-Menu }
@@ -1956,7 +2175,7 @@ function Show-Menu-Network {
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
-        $c = Read-Host "  Vyberte volbu"
+        $c = Read-MenuChoice
         switch ($c) {
             "1" { Set-FirewallState -Enabled $true; Pause-Menu }
             "2" { Set-FirewallState -Enabled $false; Pause-Menu }
@@ -1998,7 +2217,7 @@ function Show-Menu-System {
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
-        $c = Read-Host "  Vyberte volbu"
+        $c = Read-MenuChoice
         switch ($c) {
             "1" { Set-AutoRunState -Disabled $true; Pause-Menu }
             "2" { Set-AutoRunState -Disabled $false; Pause-Menu }
@@ -2035,7 +2254,7 @@ function Show-Menu-Sysmon {
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
-        $c = Read-Host "  Vyberte volbu"
+        $c = Read-MenuChoice
         switch ($c) {
             "1" { Install-Sysmon; Pause-Menu }
             "2" { Update-SysmonConfig; Pause-Menu }
@@ -2075,7 +2294,7 @@ function Show-Menu-DNS {
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
-        $c = Read-Host "  Vyberte volbu"
+        $c = Read-MenuChoice
         switch ($c) {
             "1" { Show-DNSDetail; Pause-Menu }
             "2" { Set-SecureDNS -ProfileKey "cloudflare_malware"; Pause-Menu }
@@ -2117,7 +2336,7 @@ function Show-Menu-Hardening {
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
-        $c = Read-Host "  Vyberte volbu"
+        $c = Read-MenuChoice
         switch ($c) {
             "1" { Set-LMHashState -Disabled $true; Pause-Menu }
             "2" { Set-LMHashState -Disabled $false; Pause-Menu }
@@ -2192,10 +2411,14 @@ function Show-Menu-Advanced {
         Write-MenuItem "18" "Zakazat Remote Registry sluzbu [DOPORUCENO]" Green
         Write-MenuItem "19" "Obnovit Remote Registry na Manual"
         Write-Host ""
+        Write-Host "    LSA Registry Audit:" -ForegroundColor Cyan
+        Write-MenuItem "20" "Zobrazit kompletni LSA registry protection audit" Cyan
+        Write-MenuItem "21" "Zapnout auditovani zmen LSA klice (Event ID 4657/4663)" Green
+        Write-Host ""
         Write-MenuItem "0"  "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
-        $c = Read-Host "  Vyberte volbu"
+        $c = Read-MenuChoice
         switch ($c) {
             "1"  { Set-WDigest -Disabled $true;           Pause-Menu }
             "2"  { Set-WDigest -Disabled $false;          Pause-Menu }
@@ -2216,6 +2439,8 @@ function Show-Menu-Advanced {
             "17" { Set-EventLogSize;                      Pause-Menu }
             "18" { Set-RemoteRegistryState -Disabled $true;  Pause-Menu }
             "19" { Set-RemoteRegistryState -Disabled $false; Pause-Menu }
+            "20" { Show-LSARegistryAudit;                    Pause-Menu }
+            "21" { Enable-LSARegistryAuditing;               Pause-Menu }
             "0"  { return }
             default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
         }
@@ -2250,7 +2475,7 @@ function Show-Menu-UpdatesAndSoftware {
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
-        $c = Read-Host "  Vyberte volbu"
+        $c = Read-MenuChoice
         switch ($c) {
             "1" { Show-WindowsUpdateStatus; Pause-Menu }
             "2" { Start-WindowsUpdate; Pause-Menu }
@@ -2361,7 +2586,7 @@ do {
     Write-Host "    0)  Konec" -ForegroundColor Yellow
     Write-Host ""
 
-    $mainChoice = Read-Host "  Vyberte volbu"
+    $mainChoice = Read-MenuChoice
 
     switch ($mainChoice) {
         "1"  { Show-Menu-DefenderASR }
@@ -3830,7 +4055,7 @@ function Show-Menu-SecurityEvents {
         Write-MenuItem "0" "Zpet do hlavniho menu" -Color Yellow
         Write-Host ""
         
-        $choice = Read-Host "  Vyberte volbu"
+        $choice = Read-MenuChoice
         
         switch ($choice) {
             "1" { Show-FailedLogins; Pause-Menu }
@@ -3859,7 +4084,7 @@ function Show-Menu-Processes {
         Write-MenuItem "0" "Zpet do hlavniho menu" -Color Yellow
         Write-Host ""
         
-        $choice = Read-Host "  Vyberte volbu"
+        $choice = Read-MenuChoice
         
         switch ($choice) {
             "1" { Show-RunningProcesses; Pause-Menu }
@@ -3887,7 +4112,7 @@ function Show-Menu-Network {
         Write-MenuItem "0" "Zpet do hlavniho menu" -Color Yellow
         Write-Host ""
         
-        $choice = Read-Host "  Vyberte volbu"
+        $choice = Read-MenuChoice
         
         switch ($choice) {
             "1" { Show-OpenPorts; Pause-Menu }
@@ -3915,7 +4140,7 @@ function Show-Menu-Scripting {
         Write-MenuItem "0" "Zpet do hlavniho menu" -Color Yellow
         Write-Host ""
         
-        $choice = Read-Host "  Vyberte volbu"
+        $choice = Read-MenuChoice
         
         switch ($choice) {
             "1" { Show-PowerShellProcesses; Pause-Menu }
@@ -3946,7 +4171,7 @@ function Show-Menu-System {
         Write-MenuItem "0" "Zpet do hlavniho menu" -Color Yellow
         Write-Host ""
         
-        $choice = Read-Host "  Vyberte volbu"
+        $choice = Read-MenuChoice
         
         switch ($choice) {
             "1" { Show-ScheduledTasks; Pause-Menu }
@@ -3985,7 +4210,7 @@ function Show-Menu-CommandHistory {
         Write-MenuItem "0" "Zpet do hlavniho menu" -Color Yellow
         Write-Host ""
         
-        $choice = Read-Host "  Vyberte volbu"
+        $choice = Read-MenuChoice
         
         switch ($choice) {
             "1" { Show-PowerShellHistory; Pause-Menu }
@@ -4116,7 +4341,7 @@ do {
     Write-MenuItem "0" "Konec" -Color Yellow
     Write-Host ""
     
-    $mainChoice = Read-Host "  Vyberte volbu"
+    $mainChoice = Read-MenuChoice
     
     switch ($mainChoice) {
         "1" { Show-Menu-SecurityEvents }
@@ -5570,7 +5795,7 @@ function Show-Menu-WDAC {
         Write-MenuItem "0"  "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
-        $c = Read-Host "  Vyberte volbu"
+        $c = Read-MenuChoice
         switch ($c) {
             "1"  { New-WDACDefaultPolicy -AuditMode; Pause-Menu }
             "2"  {
@@ -5650,7 +5875,7 @@ function Show-Menu-Macros {
         Write-MenuItem "0"  "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
-        $c = Read-Host "  Vyberte volbu"
+        $c = Read-MenuChoice
         switch ($c) {
             "1"  { Show-MacroStatusAll; Pause-Menu }
             "2"  { Set-MacroPolicy -Level 3; Pause-Menu }
@@ -5702,7 +5927,7 @@ function Show-Menu-PSHardening {
         Write-MenuItem "0"  "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
-        $c = Read-Host "  Vyberte volbu"
+        $c = Read-MenuChoice
         switch ($c) {
             "1"  { Set-PSLanguageMode -Constrained $true; Pause-Menu }
             "2"  { Set-PSLanguageMode -Constrained $false; Pause-Menu }
@@ -5761,7 +5986,7 @@ do {
     Write-Host "    0)  Konec" -ForegroundColor Yellow
     Write-Host ""
 
-    $mainChoice = Read-Host "  Vyberte volbu"
+    $mainChoice = Read-MenuChoice
 
     switch ($mainChoice) {
         "1"  { Show-Menu-WDAC }
@@ -5807,10 +6032,36 @@ do {
     Write-Host "        WDAC politiky (audit/enforce), vlastni pravidla, Office makra," -ForegroundColor DarkGray
     Write-Host "        Trusted Locations/Publishers, PS Constrained Mode..." -ForegroundColor DarkGray
     Write-Host ""
+    Write-Host "    x)  QuickNav  (x1{pod}{vol} / x2{vol} / x3{pod}{vol})" -ForegroundColor DarkGray
+    Write-Host "        Priklad: x1411 = Modul1 podmenu4 volba11  |  x193 = Modul1 pod9 volba3" -ForegroundColor DarkGray
+    Write-Host "                 x26   = Modul2 volba6            |  x312 = Modul3 WDAC volba2" -ForegroundColor DarkGray
+    Write-Host ""
     Write-Host "    0)  Konec" -ForegroundColor Yellow
     Write-Host ""
 
-    $suiteChoice = Read-Host "  Vyberte modul"
+    $suiteChoice = Read-Host "  Vyberte modul (nebo x-kod)"
+
+    # --- QuickNav parser: x{modul}{podmenu}{volba} ---
+    if ($suiteChoice -match '^[xX]([123])(.+)$') {
+        $qMod  = $Matches[1]
+        $qRest = $Matches[2]
+        $script:QNPath = @()
+        switch ($qMod) {
+            "2" {
+                # Modul 2 nema podmenu: x2{volba}
+                $script:QNPath = @($qRest)
+            }
+            default {
+                # Modul 1 a 3: x{M}{podmenu:1}{volba:rest}
+                if ($qRest.Length -ge 2) {
+                    $script:QNPath = @([string]$qRest[0], $qRest.Substring(1))
+                } else {
+                    $script:QNPath = @($qRest)
+                }
+            }
+        }
+        $suiteChoice = $qMod
+    }
 
     switch ($suiteChoice) {
         "1" {

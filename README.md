@@ -39,11 +39,12 @@ Po spuštění se zobrazí hlavní výběr modulu:
 ## Obsah
 
 1. [**`pc-suite.ps1`** — Jednotný skript (doporučeno)](#pc-suiteps1--jednotný-skript-doporučeno)
-2. [Modul 1: Zabezpečení (Hardening)](#modul-1-zabezpečení-hardening)
-3. [Modul 2: Monitoring a Audit](#modul-2-monitoring-a-audit)
-4. [Modul 3: Application Whitelisting (WDAC + Makra)](#modul-3-application-whitelisting-wdac--makra)
-5. [Alternativa: Samostatné skripty](#alternativa-samostatné-skripty)
-6. [Antivir blokování — řešení](#-antivir-blokování--řešení)
+2. [**QuickNav — rychlé kódy**](#quicknav--rychlé-kódy)
+3. [Modul 1: Zabezpečení (Hardening)](#modul-1-zabezpečení-hardening)
+4. [Modul 2: Monitoring a Audit](#modul-2-monitoring-a-audit)
+5. [Modul 3: Application Whitelisting (WDAC + Makra)](#modul-3-application-whitelisting-wdac--makra)
+6. [Alternativa: Samostatné skripty](#alternativa-samostatné-skripty)
+7. [Antivir blokování — řešení](#-antivir-blokování--řešení)
 
 ---
 
@@ -65,6 +66,221 @@ Nebo odblokování a spuštění jedním příkazem:
 Unblock-File .\pc-suite.ps1
 powershell -ExecutionPolicy Bypass -File .\pc-suite.ps1
 ```
+
+---
+
+## QuickNav — rychlé kódy
+
+Místo procházení menu stačí na výzvu `Vyberte modul` zadat x-kód a skript vás přenese přímo na požadovanou volbu.
+
+### Formát
+
+```
+x{modul}{podmenu}{volba}
+```
+
+| Část | Popis |
+|------|-------|
+| `x` | prefix (povinný) |
+| `{modul}` | 1 = Zabezpečení, 2 = Monitoring, 3 = WDAC+Makra |
+| `{podmenu}` | číslo podmenu (pro modul 1: 1–9, modul 3: 1–3; modul 2 nemá podmenu) |
+| `{volba}` | číslo volby v podmenu (1–21) |
+
+**Příklady:**
+```
+x1411   → Modul 1, podmenu 4 (Systém+Logování), volba 11 (nedefinovaná — ukázka formátu)
+x193    → Modul 1, podmenu 9 (Pokročilé), volba 3  → Zapnout LSA PPL
+x112    → Modul 1, podmenu 1 (Defender+ASR), volba 2 → ASR BLOKOVAT [DOPORUČENO]
+x26     → Modul 2, volba 6  → Historie příkazů a detekce hrozeb
+x311    → Modul 3, podmenu 1 (WDAC), volba 1 → Vytvořit WDAC politiku (Audit)
+```
+
+Po provedení volby se skript vrátí do normálního interaktivního režimu daného podmenu.
+
+---
+
+### Modul 1 — Zabezpečení: všechny rychlokódy
+
+#### Podmenu 1 — Defender + ASR (`x11...`)
+
+| Kód | Akce |
+|-----|------|
+| `x111` | ASR pravidla — zobrazit detail |
+| `x112` | ASR pravidla — BLOKOVAT vše ✅ |
+| `x113` | ASR pravidla — AUDIT |
+| `x114` | ASR pravidla — VYPNOUT |
+| `x115` | PUA ochrana — BLOKOVAT ✅ |
+| `x116` | PUA ochrana — AUDIT |
+| `x117` | PUA ochrana — VYPNOUT |
+| `x118` | Defender Real-Time + Cloud — ZAPNOUT ✅ |
+| `x119` | Defender Real-Time — VYPNOUT |
+| `x1110` | Controlled Folder Access — ZAPNOUT ✅ |
+| `x1111` | Controlled Folder Access — AUDIT |
+| `x1112` | Controlled Folder Access — VYPNOUT |
+| `x1113` | Tamper Protection — ZAPNOUT ✅ |
+| `x1114` | Tamper Protection — VYPNOUT |
+| `x1115` | Office registry zabezpečení ✅ |
+| `x1116` | Defender sandboxing ✅ |
+| `x1117` | Aktualizovat Defender signatury ✅ |
+
+#### Podmenu 2 — SmartScreen (`x12...`)
+
+| Kód | Akce |
+|-----|------|
+| `x121` | SmartScreen (Windows) — ZAPNOUT ✅ |
+| `x122` | SmartScreen (Windows) — VYPNOUT |
+| `x123` | SmartScreen (Edge) — ZAPNOUT ✅ |
+| `x124` | SmartScreen (Edge) — VYPNOUT |
+
+#### Podmenu 3 — Síť (`x13...`)
+
+| Kód | Akce |
+|-----|------|
+| `x131` | Windows Firewall — ZAPNOUT ✅ |
+| `x132` | Windows Firewall — VYPNOUT |
+| `x133` | RDP — ZAKÁZAT ✅ |
+| `x134` | RDP — POVOLIT |
+| `x135` | SMBv1 — ZAKÁZAT ✅ |
+| `x136` | SMBv1 — POVOLIT |
+| `x137` | LLMNR — ZAKÁZAT ✅ |
+| `x138` | LLMNR — POVOLIT |
+
+#### Podmenu 4 — Systém + Logování (`x14...`)
+
+| Kód | Akce |
+|-----|------|
+| `x141` | AutoRun/AutoPlay — ZAKÁZAT ✅ |
+| `x142` | AutoRun/AutoPlay — POVOLIT |
+| `x143` | PS Script Block Logging — ZAPNOUT ✅ |
+| `x144` | PS Script Block Logging — VYPNOUT |
+
+#### Podmenu 5 — Sysmon (`x15...`)
+
+| Kód | Akce |
+|-----|------|
+| `x151` | Instalovat Sysmon64 + konfigurace |
+| `x152` | Aktualizovat konfiguraci Sysmon |
+| `x153` | Použít vlastní XML konfiguraci |
+| `x154` | Odinstalovat Sysmon |
+
+#### Podmenu 6 — Bezpečné DNS (`x16...`)
+
+| Kód | Akce |
+|-----|------|
+| `x161` | Zobrazit detail DNS |
+| `x162` | Cloudflare malware DNS (1.1.1.2) ✅ |
+| `x163` | Cloudflare malware + dospělý obsah (1.1.1.3) ✅ |
+| `x164` | Cloudflare standard (1.1.1.1) |
+| `x165` | Reset DNS na DHCP |
+
+#### Podmenu 7 — Další doporučení (`x17...`)
+
+| Kód | Akce |
+|-----|------|
+| `x171` | Zakázat LM hash ✅ |
+| `x172` | Povolit LM hash |
+| `x173` | Sticky Keys — odstranit Debugger ✅ |
+| `x174` | Sticky Keys — ponechat výchozí |
+| `x175` | BitLocker — zobrazit návod |
+
+#### Podmenu 8 — Aktualizace + Software (`x18...`)
+
+| Kód | Akce |
+|-----|------|
+| `x181` | Windows Update — zobrazit stav |
+| `x182` | Windows Update — spustit instalaci ✅ |
+| `x183` | Winget — nainstalovaný software |
+| `x184` | Winget — dostupné aktualizace |
+| `x185` | Winget — aktualizovat vše ✅ |
+
+#### Podmenu 9 — Pokročilé zabezpečení (`x19...`)
+
+| Kód | Akce |
+|-----|------|
+| `x191` | WDigest — ZAKÁZAT (bez plaintext hesel v RAM) ✅ |
+| `x192` | WDigest — POVOLIT |
+| `x193` | LSA PPL — ZAPNOUT (ochrana lsass.exe) ✅ |
+| `x194` | LSA PPL — VYPNOUT |
+| `x195` | Network Protection — BLOKOVAT ✅ |
+| `x196` | Network Protection — AUDIT |
+| `x197` | Network Protection — VYPNOUT |
+| `x198` | NetBIOS — ZAKÁZAT ✅ |
+| `x199` | NetBIOS — POVOLIT |
+| `x1910` | NTLMv2 — úroveň 5 (nejsilnější) ✅ |
+| `x1911` | NTLMv2 — úroveň 3 (Windows výchozí) |
+| `x1912` | Windows Script Host — ZAKÁZAT ✅ |
+| `x1913` | Windows Script Host — POVOLIT |
+| `x1914` | UAC — MAXIMUM ✅ |
+| `x1915` | UAC — STANDARD |
+| `x1916` | UAC — Windows výchozí |
+| `x1917` | Event Logy — zvětšit velikost ✅ |
+| `x1918` | Remote Registry — ZAKÁZAT ✅ |
+| `x1919` | Remote Registry — obnovit na Manual |
+| `x1920` | LSA Registry Protection Audit — zobrazit |
+| `x1921` | LSA Registry Auditing — zapnout (Event 4657/4663) ✅ |
+
+---
+
+### Modul 2 — Monitoring: všechny rychlokódy (`x2...`)
+
+| Kód | Akce |
+|-----|------|
+| `x21` | Bezpečnostní události (Security Events) |
+| `x22` | Spuštěné procesy |
+| `x23` | Síťová připojení |
+| `x24` | Skriptovací procesy (PS/CMD/WMI) |
+| `x25` | Systém a správa (služby/úlohy/uživatelé) |
+| `x26` | Historie příkazů a detekce hrozeb |
+| `x29` | Rychlý přehled systému (dashboard) |
+| `x2E` | Export všech dat do souboru |
+
+---
+
+### Modul 3 — WDAC + Makra: všechny rychlokódy
+
+#### Podmenu 1 — WDAC (`x31...`)
+
+| Kód | Akce |
+|-----|------|
+| `x311` | Vytvořit výchozí politiku — AUDIT mód |
+| `x312` | Vytvořit výchozí politiku — ENFORCE mód |
+| `x313` | Přidat pravidlo podle cesty |
+| `x314` | Přidat pravidlo podle vydavatele |
+| `x315` | Přidat pravidlo podle hashe souboru |
+| `x316` | Naskenovat složku a přidat pravidla |
+| `x317` | Kompilovat a nasadit politiku ✅ |
+| `x318` | Přepnout na AUDIT mód |
+| `x319` | Přepnout na ENFORCE mód |
+| `x3110` | Odebrat nasazenou politiku |
+| `x3111` | Detailní stav + VBS/HVCI/Credential Guard |
+| `x3112` | Stáhnout WDAC Wizard (Microsoft GUI) |
+| `x3113` | Importovat XML politiku |
+| `x3114` | Zobrazit podrobný návod (workflow) |
+| `x3115` | Zobrazit zablokované aplikace (Event 3076/3077) |
+| `x3116` | Průvodce blokování LOLBins |
+
+#### Podmenu 2 — Office Makra (`x32...`)
+
+| Kód | Akce |
+|-----|------|
+| `x321` | Stav všech Office aplikací |
+| `x322` | Zakázat vše kromě podepsaných ✅ |
+| `x323` | Zakázat vše s notifikací |
+| `x324` | Zakázat úplně vše |
+| `x325` | Povolit vše (nebezpečné!) |
+| `x326` | Trusted Locations — zobrazit |
+| `x327` | Trusted Locations — přidat |
+| `x328` | Trusted Locations — odebrat |
+| `x329` | Trusted Publishers — zobrazit |
+| `x3210` | Trusted Publishers — přidat |
+| `x3211` | Vytvořit self-signed certifikát pro makra ✅ |
+
+#### Podmenu 3 — PowerShell Hardening (`x33...`)
+
+| Kód | Akce |
+|-----|------|
+| `x331` | PS Constrained Language Mode — ZAPNOUT |
+| `x332` | PS Constrained Language Mode — VYPNOUT |
 
 ---
 
