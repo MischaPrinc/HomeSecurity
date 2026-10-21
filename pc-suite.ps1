@@ -136,9 +136,9 @@ $ASR_RULES = [ordered]@{
     "d1e49aac-8f56-4280-b9ba-993a6d77406c" = "Blokovat vytvareni procesu z PSExec a WMI prikazu"
     "b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4" = "Blokovat neduveryhodne/nepodepsane procesy z USB"
     "92e97fa1-2edf-4476-bdd6-9dd0b4dddc7b" = "Blokovat Win32 API volani z Office maker"
-    "c1db55ab-c21a-4637-bb3f-a12568109d35" = "Blokovat predstirani systemovych nastroju"
+    "c1db55ab-c21a-4637-bb3f-a12568109d35" = "Ochrana pred ransomwarem (pokrocila)"
     "a8f5898e-1dc8-49a9-9878-85004b8a61e6" = "Blokovat Webshell vytvareni pro servery"
-    "c0033c00-d16d-4114-a5a0-dc9b3a7d2ceb" = "Blokovat zneuziti zranitelnych ovladacu (rozsirene)"
+    "c0033c00-d16d-4114-a5a0-dc9b3a7d2ceb" = "Blokovat predstirani systemovych nastroju"
 }
 
 # ==============================================================================
@@ -485,7 +485,7 @@ function Set-PSLogging {
             Set-ItemProperty -Path (Join-Path $baseRegPath "ModuleLogging") -Name "EnableModuleLogging" -Value 1 -Type DWord -Force -ErrorAction Stop
             Set-ItemProperty -Path $regPath -Name "EnableScriptBlockLogging" -Value 1 -Type DWord -ErrorAction Stop
             Set-ItemProperty -Path (Join-Path $baseRegPath "Transcription") -Name "EnableTranscripting" -Value 1 -Type DWord -Force -ErrorAction Stop
-            auditpol /set /subcategory:"{0cce923f-69ae-11d9-bed3-505054503030}" /success:enable /failure:enable | Out-Null
+            auditpol /set /subcategory:"{0CCE922B-69AE-11D9-BED3-505054503030}" /success:enable /failure:enable | Out-Null
             Write-Host "  PowerShell logging + Process Creation audit: Zapnuto" -ForegroundColor Green
         } else {
             if (Test-Path (Join-Path $baseRegPath "ModuleLogging")) {
@@ -497,7 +497,7 @@ function Set-PSLogging {
             if (Test-Path (Join-Path $baseRegPath "Transcription")) {
                 Set-ItemProperty -Path (Join-Path $baseRegPath "Transcription") -Name "EnableTranscripting" -Value 0 -Type DWord -Force -ErrorAction Stop
             }
-            auditpol /set /subcategory:"{0cce923f-69ae-11d9-bed3-505054503030}" /success:disable /failure:disable | Out-Null
+            auditpol /set /subcategory:"{0CCE922B-69AE-11D9-BED3-505054503030}" /success:disable /failure:disable | Out-Null
             Write-Host "  PowerShell logging + Process Creation audit: Vypnuto" -ForegroundColor Yellow
         }
     } catch { Write-Host "  CHYBA: $_" -ForegroundColor Red }
@@ -2711,7 +2711,7 @@ function Show-SecurityEvents {
         1102 = "SECURITY LOG VYMAZAN - KRITICKA UDALOST!"
         4616 = "Systemovy cas byl zmenen"
         4648 = "Prihlaseni s explicitnimi credentials (Pass-the-Hash?)"
-        4697 = "Nova sluzba nainstalovĂˇna"
+        4697 = "Nova sluzba nainstalovana"
         4698 = "Novy scheduled task vytvoren"
         4702 = "Scheduled task upraven"
         4720 = "Novy uzivatelsky ucet vytvoren"
@@ -2735,7 +2735,7 @@ function Show-SecurityEvents {
             Write-Host ""
             $logCleared | ForEach-Object {
                 Write-Host "  [$($_.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss'))] Log vymazan" -ForegroundColor Red
-                Write-Host "    Subjekt: $($_.Properties[0].Value)" -ForegroundColor Yellow
+                Write-Host "    Subjekt: $($_.Properties[1].Value)" -ForegroundColor Yellow
                 Write-Host ""
             }
         }
@@ -3158,7 +3158,7 @@ function Show-PowerShellHistory {
         
         if (-not $loggingEnabled) {
             Write-Host "  [!] VAROVANI: PowerShell Script Block Logging NENI zapnuto!" -ForegroundColor Red
-            Write-Host "      Pro zapnuti pouzijte skript secure-pc.ps1" -ForegroundColor Yellow
+            Write-Host "      Pro zapnuti pouzijte home-security.ps1 > hlavni menu > 4 (System a Logging)" -ForegroundColor Yellow
             Write-Host ""
         }
         
@@ -3190,7 +3190,7 @@ function Show-PowerShellHistory {
                     $scriptBlock
                 }
                 
-                # Test na podezĹ™elĂ© vzory
+                # Test na podezrele vzory
                 $findings = Test-SuspiciousCommand -Command $scriptBlock
                 
                 if ($findings.Count -gt 0) {
@@ -3330,7 +3330,7 @@ function Show-SysmonHistory {
         
         if (-not $sysmonRunning) {
             Write-Host "  [!] Sysmon NENI nainstalovan!" -ForegroundColor Red
-            Write-Host "      Pro instalaci pouzijte skript secure-pc.ps1" -ForegroundColor Yellow
+            Write-Host "      Pro instalaci pouzijte home-security.ps1 > hlavni menu > 5 (Sysmon)" -ForegroundColor Yellow
             Write-Host ""
             return
         }
@@ -3352,7 +3352,7 @@ function Show-SysmonHistory {
                 $commandLine = $event.Properties[10].Value
                 $user = $event.Properties[12].Value
                 $parentImage = $event.Properties[20].Value
-                $hashes = if ($event.Properties.Count -gt 24) { $event.Properties[24].Value } else { "" }
+                $hashes = if ($event.Properties.Count -gt 17) { $event.Properties[17].Value } else { "" }
                 
                 # Filtruj pouze zajimave procesy
                 if ($image -notmatch '(powershell|pwsh|cmd\.exe|wmic\.exe|mshta\.exe|regsvr32\.exe|rundll32\.exe|cscript\.exe|wscript\.exe)') {
@@ -3806,7 +3806,7 @@ function Show-PersistenceEvents {
             foreach ($ev in $taskEvents) {
                 $action = if ($ev.Id -eq 4698) { "VYTVOREN" } else { "UPRAVEN" }
                 Write-Host "    [$($ev.TimeCreated.ToString('yyyy-MM-dd HH:mm'))] Task $action" -ForegroundColor Yellow
-                $name = if ($ev.Properties.Count -gt 0) { $ev.Properties[0].Value } else { "N/A" }
+                $name = if ($ev.Properties.Count -gt 4) { $ev.Properties[4].Value } else { "N/A" }
                 Write-Host "    Nazev: $name" -ForegroundColor White
                 Write-Host ""
             }
@@ -3826,7 +3826,7 @@ function Show-SuspiciousParentChild {
     if (-not $sysmonSvc) { $sysmonSvc = Get-Service -Name "Sysmon" -ErrorAction SilentlyContinue }
     if (-not $sysmonSvc -or $sysmonSvc.Status -ne "Running") {
         Write-Host "  [!] Sysmon NENI nainstalovan nebo nebezi." -ForegroundColor Red
-        Write-Host "  Nainstalujte Sysmon v secure-pc.ps1 > menu 5 pro tuto detekci." -ForegroundColor Yellow
+        Write-Host "  Nainstalujte Sysmon v home-security.ps1 > hlavni menu > 5 (Sysmon)." -ForegroundColor Yellow
         return
     }
 
@@ -3852,9 +3852,9 @@ function Show-SuspiciousParentChild {
 
         $found = 0
         foreach ($ev in $events) {
-            # Properties[4]=Image (child), Properties[13]=ParentImage
+            # Properties[4]=Image (child), Properties[20]=ParentImage (Sysmon 1 s RuleName)
             $childPath  = if ($ev.Properties.Count -gt 4)  { $ev.Properties[4].Value }  else { "" }
-            $parentPath = if ($ev.Properties.Count -gt 13) { $ev.Properties[13].Value } else { "" }
+            $parentPath = if ($ev.Properties.Count -gt 20) { $ev.Properties[20].Value } else { "" }
             $childName  = if ($childPath)  { [System.IO.Path]::GetFileName($childPath).ToLower()  } else { "" }
             $parentName = if ($parentPath) { [System.IO.Path]::GetFileName($parentPath).ToLower() } else { "" }
 
@@ -4100,7 +4100,7 @@ function Show-Menu-Processes {
     } while ($true)
 }
 
-function Show-Menu-Network {
+function Show-Menu-MonNetwork {
     do {
         Show-Banner
         Write-Header "Sitove Pripojeni"
@@ -4156,7 +4156,7 @@ function Show-Menu-Scripting {
     } while ($true)
 }
 
-function Show-Menu-System {
+function Show-Menu-MonSystem {
     do {
         Show-Banner
         Write-Header "System a Sprava"
@@ -4194,7 +4194,7 @@ function Show-Menu-CommandHistory {
         Show-Banner
         Write-Header "Historie Prikazu a Detekce Hrozeb"
         
-        Write-Host "  Analyza historie s detekcĂ­ podezrelych vzoru:" -ForegroundColor Yellow
+        Write-Host "  Analyza historie s detekci podezrelych vzoru:" -ForegroundColor Yellow
         Write-Host "    - ExecutionPolicy Bypass, EncodedCommand" -ForegroundColor DarkGray
         Write-Host "    - Download cradles, Base64 encoding" -ForegroundColor DarkGray
         Write-Host "    - Defender modifications, LOLBins" -ForegroundColor DarkGray
@@ -4346,9 +4346,9 @@ do {
     switch ($mainChoice) {
         "1" { Show-Menu-SecurityEvents }
         "2" { Show-Menu-Processes }
-        "3" { Show-Menu-Network }
+        "3" { Show-Menu-MonNetwork }
         "4" { Show-Menu-Scripting }
-        "5" { Show-Menu-System }
+        "5" { Show-Menu-MonSystem }
         "6" { Show-Menu-CommandHistory }
         "9" { Show-QuickOverview; Pause-Menu }
         { $_ -in @("E","e") } { Export-MonitorResults; Pause-Menu }
@@ -5463,7 +5463,7 @@ function Add-TrustedPublisher {
 
         if ($cert.NotAfter -lt (Get-Date)) {
             Write-Host "  [VAROVANI] Certifikat je EXPIROVAN (do: $($cert.NotAfter.ToString('dd.MM.yyyy')))!" -ForegroundColor Red
-            Write-Host "  Expirovanhy certifikat nemusĂ­ poskytnout ochranu." -ForegroundColor Yellow
+            Write-Host "  Expirovany certifikat nemusi poskytnout ochranu." -ForegroundColor Yellow
         }
 
         $store = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPublisher", "CurrentUser")
@@ -5625,7 +5625,7 @@ function Show-WDACWorkflow {
     Write-Host "  - Po kazde zmene je treba KOMPILOVAT (volba 7) a RESTARTOVAT." -ForegroundColor Yellow
     Write-Host "  - Event Log ID 3076 = audit (tohle BY se zablokovalo)." -ForegroundColor Yellow
     Write-Host "  - Event Log ID 3077 = enforce (tohle se ZABLOKOVALO)." -ForegroundColor Yellow
-    Write-Host "  - Pokud se po Enforce neco rozbije, spusdte v Safe Mode" -ForegroundColor Yellow
+    Write-Host "  - Pokud se po Enforce neco rozbije, spustte v Safe Mode" -ForegroundColor Yellow
     Write-Host "    a smazte soubor: $WDACDeployedPath" -ForegroundColor Yellow
     Write-Host "  - Publisher pravidla jsou nejlepsi - preziji aktualizace app." -ForegroundColor Yellow
     Write-Host "  - Hash pravidla jsou nejprisnejsi ale musi se menit po updatu." -ForegroundColor Yellow
@@ -5667,7 +5667,7 @@ function Show-QuickStartGuide {
     Write-Host ""
 }
 
-function Show-FullStatus {
+function Show-WDACFullStatus {
     Show-Banner
     Write-Header "KOMPLETNI PREHLED"
 
@@ -5993,7 +5993,7 @@ do {
         "2"  { Show-Menu-Macros }
         "3"  { Show-Menu-PSHardening }
         "4"  { Show-QuickStartGuide; Pause-Menu }
-        "99" { Show-FullStatus; Pause-Menu }
+        "99" { Show-WDACFullStatus; Pause-Menu }
         "0"  {
             Write-Host ""
             Write-Host "  Ukoncuji. Zustan v bezpeci!" -ForegroundColor Cyan
