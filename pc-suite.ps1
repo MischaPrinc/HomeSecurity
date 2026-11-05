@@ -4567,19 +4567,48 @@ function Show-WDACBlockedEvents {
                 Write-Host "  [$($ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss'))] " -NoNewline -ForegroundColor DarkGray
                 Write-Host "ID $($ev.Id) - $typeText" -ForegroundColor $evColor
 
-                # Properties: [0]=File name, [1]=Process name (varies by event version)
-                $props = $ev.Properties
-                if ($props.Count -gt 0 -and $props[0].Value) {
-                    Write-Host "    Soubor: $($props[0].Value)" -ForegroundColor White
+                try {
+                    $eventXml = New-Object System.Xml.XmlDocument
+                    $eventXml.XmlResolver = $null
+                    $eventXml.LoadXml($ev.ToXml())
+                    $eventData = @{}
+                    foreach ($dataNode in $eventXml.SelectNodes('/*[local-name()="Event"]/*[local-name()="EventData"]/*[local-name()="Data"]')) {
+                        $fieldName = $dataNode.GetAttribute('Name')
+                        if ($fieldName) { $eventData[$fieldName] = $dataNode.InnerText }
+                    }
+                    $detailFields = [ordered]@{
+                        FileName = 'Soubor'
+                        ProcessName = 'Proces'
+                        PolicyName = 'Politika'
+                        PolicyId = 'ID politiky'
+                        Status = 'Stav (kod)'
+                        RequestedSigningLevel = 'Pozadovana uroven podpisu'
+                        ValidatedSigningLevel = 'Overena uroven podpisu'
+                        SHA256Hash = 'SHA-256 (CI)'
+                        SHA256FlatHash = 'SHA-256 (flat)'
+                    }
+                    foreach ($fieldName in $detailFields.Keys) {
+                        if (-not [string]::IsNullOrWhiteSpace($eventData[$fieldName])) {
+                            Write-Host "    $($detailFields[$fieldName]): $($eventData[$fieldName])" -ForegroundColor White
+                        }
+                    }
+                    if (-not $eventData['FileName'] -and -not $eventData['ProcessName']) {
+                        Write-Host "    Zprava: $($ev.Message)" -ForegroundColor Gray
+                    }
+                    $activityId = $eventXml.SelectSingleNode('/*[local-name()="Event"]/*[local-name()="System"]/*[local-name()="Correlation"]/@ActivityID')
+                    if ($activityId) {
+                        Write-Host "    Activity ID: $($activityId.Value)" -ForegroundColor DarkGray
+                    }
+                } catch {
+                    Write-Host "    Nelze zpracovat XML udalosti: $_" -ForegroundColor Yellow
+                    Write-Host "    Zprava: $($ev.Message)" -ForegroundColor Gray
                 }
-                if ($props.Count -gt 10 -and $props[10].Value) {
-                    Write-Host "    Proces: $($props[10].Value)" -ForegroundColor Gray
-                }
+                Write-Host "    Zaznam: $($ev.RecordId)" -ForegroundColor DarkGray
                 Write-Host ""
             }
         }
     } catch {
-        if ($_ -match "No events were found") {
+        if ($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*' -or $_ -match "No events were found") {
             Write-Host "  Zadne WDAC udalosti nalezeny - event log je prazdny." -ForegroundColor Green
         } else {
             Write-Host "  Nelze cist WDAC event log: $_" -ForegroundColor Red
