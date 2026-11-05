@@ -4382,15 +4382,50 @@ $WDACWizardInstaller = "$WDACPolicyDir\WDACWizard_Setup.msix"
 # ==============================================================================
 #        W D A C   -   S T A V   a   I N F O R M A C E
 # ==============================================================================
+function Get-WDACPolicyInfo {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $document = New-Object System.Xml.XmlDocument
+    $document.XmlResolver = $null
+    $document.Load($Path)
+    $namespace = New-Object System.Xml.XmlNamespaceManager($document.NameTable)
+    $namespace.AddNamespace('ci', 'urn:schemas-microsoft-com:sipolicy')
+    $root = $document.SelectSingleNode('/ci:SiPolicy', $namespace)
+    if (-not $root) { throw "Neplatna WDAC politika: $Path" }
+
+    $options = @($root.SelectNodes('ci:Rules/ci:Rule/ci:Option', $namespace) | ForEach-Object { $_.InnerText })
+    $policyNode = $root.SelectSingleNode('ci:PolicyID', $namespace)
+    $baseNode = $root.SelectSingleNode('ci:BasePolicyID', $namespace)
+    $policyId = $null
+    $deploymentPath = $WDACDeployedPath
+    if ($policyNode) {
+        $policyId = ([guid]$policyNode.InnerText).ToString('B').ToUpperInvariant()
+        if (-not $baseNode -or ([guid]$baseNode.InnerText) -ne ([guid]$policyId)) {
+            throw 'Toto menu nasazuje pouze zakladni (Base) politiky, nikoli Supplemental politiky.'
+        }
+        $deploymentPath = Join-Path "$env:windir\System32\CodeIntegrity\CIPolicies\Active" "$policyId.cip"
+    }
+
+    [pscustomobject]@{
+        PolicyId = $policyId
+        DeploymentPath = $deploymentPath
+        HasUMCI = $options -contains 'Enabled:UMCI'
+        HasUserModeRules = $null -ne $root.SelectSingleNode('ci:SigningScenarios/ci:SigningScenario[@Value="12"]/ci:ProductSigners/*', $namespace)
+        Audit = $options -contains 'Enabled:Audit Mode'
+        Unsigned = $options -contains 'Enabled:Unsigned System Integrity Policy'
+        ReputationAllowed = $options -contains 'Enabled:Intelligent Security Graph Authorization'
+    }
+}
+
 function Get-WDACStatus {
     try {
         $ci = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace "root\Microsoft\Windows\DeviceGuard" -ErrorAction Stop
-        $status = $ci.CodeIntegrityPolicyEnforcementStatus
+        $status = $ci.UsermodeCodeIntegrityPolicyEnforcementStatus
         # 0 = Off, 1 = Audit, 2 = Enforced
         switch ($status) {
-            0 { "Vypnuto" }
-            1 { "Audit mod" }
-            2 { "Enforce mod (aktivni!)" }
+            0 { "Vypnuto (UMCI - aplikace nejsou rizeny WDAC)" }
+            1 { "Audit mod (UMCI - aplikace se neblokuji)" }
+            2 { "Enforce mod (UMCI - kontrola aplikaci aktivni)" }
             default { "Neznamy ($status)" }
         }
     } catch {
@@ -4398,7 +4433,7 @@ function Get-WDACStatus {
         if (Test-Path $WDACDeployedPath) {
             "Nasazeno (nelze zjistit mod)"
         } else {
-            "Vypnuto"
+            "Neznamy (nelze zjistit aktivni UMCI)"
         }
     }
 }
@@ -4407,14 +4442,14 @@ function Get-WDACStatusShort {
     try {
         $ci = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace "root\Microsoft\Windows\DeviceGuard" -ErrorAction SilentlyContinue
         if ($ci) {
-            switch ($ci.CodeIntegrityPolicyEnforcementStatus) {
+            switch ($ci.UsermodeCodeIntegrityPolicyEnforcementStatus) {
                 0 { "Vypnuto" }
                 1 { "Audit" }
                 2 { "Enforce" }
                 default { "?" }
             }
         } else {
-            if (Test-Path $WDACDeployedPath) { "Nasazeno" } else { "Vypnuto" }
+            if (Test-Path $WDACDeployedPath) { "Nasazeno (neovereno)" } else { "Neznamy" }
         }
     } catch { "Neznamy" }
 }
@@ -4425,6 +4460,13 @@ function Show-WDACDetail {
     $st = Get-WDACStatus
     $color = if ($st -match "Enforce") { 'Green' } elseif ($st -match "Audit") { 'Yellow' } else { 'Red' }
     Write-Status "WDAC stav" $st $color
+
+    try {
+        $ci = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace "root\Microsoft\Windows\DeviceGuard" -ErrorAction Stop
+        Write-Status "Kernel CI (0/1/2)" "$($ci.CodeIntegrityPolicyEnforcementStatus)" Gray
+        Write-Status "User-mode CI (0/1/2)" "$($ci.UsermodeCodeIntegrityPolicyEnforcementStatus)" Cyan
+        Write-Host "  0 = vypnuto, 1 = audit, 2 = enforce. Kernel CI samotne neridi aplikace." -ForegroundColor DarkGray
+    } catch { Write-Host "  Nelze overit bezici Code Integrity: $_" -ForegroundColor Yellow }
 
     # Policy soubory
     Write-Host ""
@@ -4441,6 +4483,17 @@ function Show-WDACDetail {
         $eColor = if ($exists) { 'Green' } else { 'DarkGray' }
         $eText  = if ($exists) { "ANO" } else { "NE" }
         Write-Status $f.Label $eText $eColor
+    }
+
+    $policyXml = if (Test-Path $WDACMergedXml) { $WDACMergedXml } else { $WDACDefaultXml }
+    if (Test-Path $policyXml) {
+        try {
+            $info = Get-WDACPolicyInfo -Path $policyXml
+            Write-Status "XML: UMCI" "$($info.HasUMCI)" Cyan
+            Write-Status "XML: Audit" "$($info.Audit)" Cyan
+            Write-Status "Cilova cesta politiky" $info.DeploymentPath Cyan
+            Write-Status "Soubor v cilove ceste" "$(Test-Path -LiteralPath $info.DeploymentPath) (nepotvrzuje aktivaci)" Yellow
+        } catch { Write-Host "  [CHYBA] XML politiky: $_" -ForegroundColor Red }
     }
 
     # WDAC eventy z Event Logu
@@ -4764,6 +4817,7 @@ function Import-WDACExternalPolicy {
             }
             try {
                 Merge-CIPolicy -PolicyPaths $WDACDefaultXml, $importPath -OutputFilePath $WDACMergedXml -ErrorAction Stop
+                Copy-Item -LiteralPath $WDACMergedXml -Destination $WDACDefaultXml -Force -ErrorAction Stop
                 Write-Host "  [OK] Politiky slouceny do: $WDACMergedXml" -ForegroundColor Green
             } catch {
                 Write-Host "  [CHYBA] Merge selhal: $_" -ForegroundColor Red
@@ -4816,13 +4870,16 @@ function New-WDACDefaultPolicy {
         # Pouzijeme predpripravenou politiku z Windows
         $defaultPolicyPath = "$env:windir\schemas\CodeIntegrity\ExamplePolicies\DefaultWindows_Audit.xml"
         if (-not (Test-Path $defaultPolicyPath)) {
-            # Fallback - vytvorit sken-based
-            Write-Host "  Predpripravena politika nenalezena, vytvarim scan-based ..." -ForegroundColor Yellow
-            New-CIPolicy -Level Publisher -Fallback Hash -FilePath $WDACDefaultXml -UserPEs -ErrorAction Stop
-        } else {
-            Copy-Item $defaultPolicyPath $WDACDefaultXml -Force
-            Write-Host "  [OK] Pouzita DefaultWindows sablona" -ForegroundColor Green
+            $defaultPolicyPath = "$env:windir\schemas\CodeIntegrity\ExamplePolicies\DefaultWindows_Enforced.xml"
         }
+        if (-not (Test-Path $defaultPolicyPath)) {
+            throw 'DefaultWindows sablona nenalezena. Importujte Base politiku z WDAC Wizardu; automaticky sken celeho PC by mohl povolit i nezadouci aplikace.'
+        }
+        Copy-Item $defaultPolicyPath $WDACDefaultXml -Force -ErrorAction Stop
+        Write-Host "  [OK] Pouzita DefaultWindows sablona" -ForegroundColor Green
+
+        Set-RuleOption -FilePath $WDACDefaultXml -Option 0 -ErrorAction Stop
+        Set-RuleOption -FilePath $WDACDefaultXml -Option 6 -ErrorAction Stop
 
         # Pridat ISG (Intelligent Security Graph) - Microsoft cloud reputace
         try {
@@ -4834,11 +4891,11 @@ function New-WDACDefaultPolicy {
 
         if ($AuditMode) {
             # Option 3 = Audit Mode
-            Set-RuleOption -FilePath $WDACDefaultXml -Option 3
+            Set-RuleOption -FilePath $WDACDefaultXml -Option 3 -ErrorAction Stop
             Write-Host "  [OK] Nastaven AUDIT mod (jen loguje, neblokuje)" -ForegroundColor Yellow
         } else {
             # Odebrat audit mode
-            Set-RuleOption -FilePath $WDACDefaultXml -Option 3 -Delete -ErrorAction SilentlyContinue
+            Set-RuleOption -FilePath $WDACDefaultXml -Option 3 -Delete -ErrorAction Stop
             Write-Host "  [OK] Nastaven ENFORCE mod (blokuje neschvalene aplikace!)" -ForegroundColor Green
         }
 
@@ -4874,15 +4931,12 @@ function Add-WDACPathRule {
     Initialize-WDACDirectory
 
     try {
-        if (-not (Test-Path $WDACCustomXml)) {
-            # Vytvorit prazdnou politiku
-            Write-Host "  Vytvarim novou politiku pro vlastni pravidla ..." -ForegroundColor Yellow
-            New-CIPolicy -Level Hash -FilePath $WDACCustomXml -UserPEs -ScanPath $env:windir\Temp -ErrorAction Stop
-            # Smazat vsechna defaultni pravidla a nechat jen nas path rule
-        }
-
         $rules = New-CIPolicyRule -FilePathRule $path -ErrorAction Stop
-        Merge-CIPolicy -PolicyPaths $WDACCustomXml -Rules $rules -OutputFilePath $WDACCustomXml -ErrorAction Stop
+        if (Test-Path $WDACCustomXml) {
+            Merge-CIPolicy -PolicyPaths $WDACCustomXml -Rules $rules -OutputFilePath $WDACCustomXml -ErrorAction Stop
+        } else {
+            New-CIPolicy -Rules $rules -FilePath $WDACCustomXml -ErrorAction Stop
+        }
 
         Write-Host "  [OK] Pravidlo pridano: $path" -ForegroundColor Green
         Write-Host "  Nezapomente znovu kompilovat a nasadit politiku!" -ForegroundColor Yellow
@@ -4909,12 +4963,12 @@ function Add-WDACPublisherRule {
     Initialize-WDACDirectory
 
     try {
-        if (-not (Test-Path $WDACCustomXml)) {
-            New-CIPolicy -Level Hash -FilePath $WDACCustomXml -UserPEs -ScanPath $env:windir\Temp -ErrorAction Stop
+        $rules = New-CIPolicyRule -Level Publisher -DriverFilePath $file -Fallback Hash -ErrorAction Stop
+        if (Test-Path $WDACCustomXml) {
+            Merge-CIPolicy -PolicyPaths $WDACCustomXml -Rules $rules -OutputFilePath $WDACCustomXml -ErrorAction Stop
+        } else {
+            New-CIPolicy -Rules $rules -FilePath $WDACCustomXml -ErrorAction Stop
         }
-
-        $rules = New-CIPolicyRule -Level Publisher -FilePath $file -Fallback Hash -ErrorAction Stop
-        Merge-CIPolicy -PolicyPaths $WDACCustomXml -Rules $rules -OutputFilePath $WDACCustomXml -ErrorAction Stop
 
         Write-Host "  [OK] Publisher pravidlo pridano ze souboru: $file" -ForegroundColor Green
         Write-Host "  Nezapomente znovu kompilovat a nasadit politiku!" -ForegroundColor Yellow
@@ -4941,12 +4995,12 @@ function Add-WDACHashRule {
     Initialize-WDACDirectory
 
     try {
-        if (-not (Test-Path $WDACCustomXml)) {
-            New-CIPolicy -Level Hash -FilePath $WDACCustomXml -UserPEs -ScanPath $env:windir\Temp -ErrorAction Stop
+        $rules = New-CIPolicyRule -Level Hash -DriverFilePath $file -ErrorAction Stop
+        if (Test-Path $WDACCustomXml) {
+            Merge-CIPolicy -PolicyPaths $WDACCustomXml -Rules $rules -OutputFilePath $WDACCustomXml -ErrorAction Stop
+        } else {
+            New-CIPolicy -Rules $rules -FilePath $WDACCustomXml -ErrorAction Stop
         }
-
-        $rules = New-CIPolicyRule -Level Hash -FilePath $file -ErrorAction Stop
-        Merge-CIPolicy -PolicyPaths $WDACCustomXml -Rules $rules -OutputFilePath $WDACCustomXml -ErrorAction Stop
 
         $hash = (Get-FileHash $file -Algorithm SHA256).Hash
         Write-Host "  [OK] Hash pravidlo pridano: $file" -ForegroundColor Green
@@ -5003,6 +5057,14 @@ function Deploy-WDACPolicy {
 
     # Overit existenci zdrojove politiky
     $sourceXml = $null
+    try {
+        $baseInfo = Get-WDACPolicyInfo -Path $WDACDefaultXml
+        if (-not $baseInfo.Unsigned) { throw 'Podepsane/uzamcene politiky toto menu nepodporuje. Pouzijte oficialni postup pro signed policies.' }
+        if (-not $baseInfo.HasUserModeRules) { throw 'Chybi pravidla pro uzivatelske aplikace (SigningScenario 12). Vytvorte novou DefaultWindows politiku.' }
+    } catch {
+        Write-Host "  [CHYBA] Kontrola zakladni politiky selhala: $_" -ForegroundColor Red
+        return
+    }
     if ((Test-Path $WDACCustomXml) -and (Test-Path $WDACDefaultXml)) {
         Write-Host "  Slucuji vychozi + vlastni pravidla ..." -ForegroundColor Yellow
         try {
@@ -5014,7 +5076,13 @@ function Deploy-WDACPolicy {
             return
         }
     } elseif (Test-Path $WDACDefaultXml) {
-        $sourceXml = $WDACDefaultXml
+        try {
+            Copy-Item -LiteralPath $WDACDefaultXml -Destination $WDACMergedXml -Force -ErrorAction Stop
+            $sourceXml = $WDACMergedXml
+        } catch {
+            Write-Host "  [CHYBA] Priprava politiky selhala: $_" -ForegroundColor Red
+            return
+        }
         Write-Host "  Pouzivam pouze vychozi politiku (zadna vlastni pravidla)." -ForegroundColor Yellow
     } else {
         Write-Host "  [CHYBA] Zadna politika nenalezena!" -ForegroundColor Red
@@ -5025,6 +5093,19 @@ function Deploy-WDACPolicy {
     # Kompilace XML -> BIN
     Write-Host "  Kompiluji politiku ..." -ForegroundColor Yellow
     try {
+        Set-RuleOption -FilePath $sourceXml -Option 0 -ErrorAction Stop
+        if ($baseInfo.Audit) {
+            Set-RuleOption -FilePath $sourceXml -Option 3 -ErrorAction Stop
+        } else {
+            Set-RuleOption -FilePath $sourceXml -Option 3 -Delete -ErrorAction Stop
+        }
+        $info = Get-WDACPolicyInfo -Path $sourceXml
+        if (-not $info.HasUMCI -or -not $info.HasUserModeRules -or -not $info.Unsigned -or $info.Audit -ne $baseInfo.Audit) {
+            throw 'Vysledna politika nesplnuje pozadavky na UMCI, pravidla, unsigned nebo Audit/Enforce rezim.'
+        }
+        if ($info.PolicyId -and [Environment]::OSVersion.Version.Build -lt 18362) {
+            throw 'Multi-policy format vyzaduje Windows 10 1903 nebo novejsi.'
+        }
         ConvertFrom-CIPolicy $sourceXml $WDACCompiledBin -ErrorAction Stop
         Write-Host "  [OK] Kompilace dokoncena: $WDACCompiledBin" -ForegroundColor Green
     } catch {
@@ -5035,10 +5116,30 @@ function Deploy-WDACPolicy {
     # Nasazeni
     Write-Host "  Nasazuji politiku do systemu ..." -ForegroundColor Yellow
     try {
-        Copy-Item $WDACCompiledBin $WDACDeployedPath -Force -ErrorAction Stop
-        Write-Host "  [OK] Politika nasazena: $WDACDeployedPath" -ForegroundColor Green
+        $mode = if ($info.Audit) { 'AUDIT (neblokuje)' } else { 'ENFORCE (blokuje neschvalene aplikace)' }
+        Write-Host "  Rezim: $mode | UMCI: zapnuto" -ForegroundColor Yellow
+        if ($info.ReputationAllowed) {
+            Write-Host "  POZOR: ISG povoluje i aplikace s cloud reputaci, nejen vas explicitni whitelist." -ForegroundColor Yellow
+        }
+        if (-not $info.Audit) {
+            $confirm = Read-Host "  Pred nasazenim ENFORCE overte audit a pripravte obnovu PC. Pokracovat? (ano/ne)"
+            if ($confirm -ne 'ano') { Write-Host "  Nasazeni zruseno." -ForegroundColor Yellow; return }
+        }
+        $destinationDirectory = Split-Path -Path $info.DeploymentPath -Parent
+        if (-not (Test-Path -LiteralPath $destinationDirectory)) {
+            New-Item -Path $destinationDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
+        }
+        if (Test-Path -LiteralPath $info.DeploymentPath) {
+            $backupPath = Join-Path $WDACPolicyDir "DeployedPolicy_$(Get-Date -Format 'yyyyMMdd_HHmmss_fff').bak"
+            Copy-Item -LiteralPath $info.DeploymentPath -Destination $backupPath -ErrorAction Stop
+            Write-Host "  Zaloha predchoziho souboru: $backupPath" -ForegroundColor DarkGray
+        }
+        Copy-Item -LiteralPath $WDACCompiledBin -Destination $info.DeploymentPath -Force -ErrorAction Stop
+        Write-Host "  [OK] Soubor politiky nasazen: $($info.DeploymentPath)" -ForegroundColor Green
         Write-Host ""
         Write-Host "  DULEZITE: Restartujte pocitac pro aktivaci politiky!" -ForegroundColor Yellow
+        Write-Host "  Po restartu overte UsermodeCodeIntegrityPolicyEnforcementStatus: 1 = Audit, 2 = Enforce." -ForegroundColor Cyan
+        Write-Host "  Samotne CodeIntegrityPolicyEnforcementStatus = 2 nepotvrzuje kontrolu aplikaci." -ForegroundColor DarkGray
         Write-Host "  DOPORUCENI: Nejprve pouzijte AUDIT mod a zkontrolujte Event Log." -ForegroundColor Yellow
     } catch {
         Write-Host "  [CHYBA] Nasazeni selhalo: $_" -ForegroundColor Red
@@ -5049,24 +5150,29 @@ function Remove-WDACPolicy {
     Write-Host ""
     Write-Host "  -- Odebrani WDAC politiky --" -ForegroundColor Cyan
 
-    if (Test-Path $WDACDeployedPath) {
+    $targetPath = $WDACDeployedPath
+    $policyXml = if (Test-Path $WDACMergedXml) { $WDACMergedXml } else { $WDACDefaultXml }
+    if (Test-Path $policyXml) {
         try {
-            # Nejprve prepnout na audit
-            if (Test-Path $WDACDefaultXml) {
-                Set-RuleOption -FilePath $WDACDefaultXml -Option 3 -ErrorAction SilentlyContinue
-                Write-Host "  Prepnuto na audit pred odebranim ..." -ForegroundColor Yellow
-            }
+            $info = Get-WDACPolicyInfo -Path $policyXml
+            if (-not $info.Unsigned) { throw 'Odebrani podepsane/uzamcene politiky vyzaduje oficialni postup pro signed policies.' }
+            $targetPath = $info.DeploymentPath
+        } catch {
+            Write-Host "  [CHYBA] Nelze bezpecne urcit politiku k odebrani: $_" -ForegroundColor Red
+            return
+        }
+    }
 
-            # Zazalohovat pred smazanim
-            $backupPath = "$WDACDeployedPath.bak"
-            Copy-Item -Path $WDACDeployedPath -Destination $backupPath -Force -ErrorAction SilentlyContinue
-            if (Test-Path $backupPath) {
-                Write-Host "  [OK] Zalohano: $backupPath" -ForegroundColor DarkGray
-            }
-
-            Remove-Item $WDACDeployedPath -Force -ErrorAction Stop
-            Write-Host "  [OK] Politika odebrana ze systemu." -ForegroundColor Green
-            Write-Host "  POZN: Restartujte pocitac pro uplne deaktivovani WDAC." -ForegroundColor Yellow
+    if (Test-Path -LiteralPath $targetPath) {
+        Write-Host "  Bude odebran pouze soubor: $targetPath" -ForegroundColor Yellow
+        $confirm = Read-Host "  Opravdu odebrat tuto politiku? (ano/ne)"
+        if ($confirm -ne 'ano') { return }
+        try {
+            $backupPath = Join-Path $WDACPolicyDir "RemovedPolicy_$(Get-Date -Format 'yyyyMMdd_HHmmss_fff').bak"
+            Copy-Item -LiteralPath $targetPath -Destination $backupPath -ErrorAction Stop
+            Remove-Item -LiteralPath $targetPath -Force -ErrorAction Stop
+            Write-Host "  [OK] Soubor politiky odebran; bezici politika se tim okamzite nevypina." -ForegroundColor Green
+            Write-Host "  POZN: Restartujte PC a overte UMCI. Ostatni politiky mohou zustat aktivni." -ForegroundColor Yellow
             Write-Host "  Zaloha uschrana v: $backupPath" -ForegroundColor DarkGray
             Write-Host "  (Pokud neco nefunguje po restartu, lze zalohu obnovit z WinRE)" -ForegroundColor DarkGray
         } catch {
@@ -5085,6 +5191,7 @@ function Switch-WDACAuditEnforce {
         return
     }
     try {
+        Set-RuleOption -FilePath $WDACDefaultXml -Option 0 -ErrorAction Stop
         if ($Audit) {
             Set-RuleOption -FilePath $WDACDefaultXml -Option 3 -ErrorAction Stop
             Write-Host "  [OK] Politika prepnuta na AUDIT mod" -ForegroundColor Yellow
@@ -5625,8 +5732,11 @@ function Show-WDACWorkflow {
     Write-Host "  - Po kazde zmene je treba KOMPILOVAT (volba 7) a RESTARTOVAT." -ForegroundColor Yellow
     Write-Host "  - Event Log ID 3076 = audit (tohle BY se zablokovalo)." -ForegroundColor Yellow
     Write-Host "  - Event Log ID 3077 = enforce (tohle se ZABLOKOVALO)." -ForegroundColor Yellow
-    Write-Host "  - Pokud se po Enforce neco rozbije, spustte v Safe Mode" -ForegroundColor Yellow
-    Write-Host "    a smazte soubor: $WDACDeployedPath" -ForegroundColor Yellow
+    Write-Host "  - Odebrani vlastni unsigned politiky: volba 10, pak restart PC." -ForegroundColor Yellow
+    Write-Host "  - Pred Enforce si poznamenejte cilovou cestu z volby 11 a pripravte WinRE." -ForegroundColor Yellow
+    Write-Host "    Pri nefunkcnim startu odeberte ve WinRE jen tuto vlastni politiku:" -ForegroundColor Yellow
+    Write-Host "    CIPolicies\Active\{PolicyID}.cip, nebo u legacy formatu SIPolicy.p7b." -ForegroundColor Yellow
+    Write-Host "    Nemazte ostatni systemove politiky. Pismeno disku ve WinRE muze byt jine." -ForegroundColor Yellow
     Write-Host "  - Publisher pravidla jsou nejlepsi - preziji aktualizace app." -ForegroundColor Yellow
     Write-Host "  - Hash pravidla jsou nejprisnejsi ale musi se menit po updatu." -ForegroundColor Yellow
     Write-Host ""
