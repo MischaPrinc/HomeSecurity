@@ -73,8 +73,8 @@ function Resolve-QuickNavPath {
     if ($c -match '^[xX]2([1-7])0*([1-8])$') {
         return @('2', $Matches[1], [string][int]$Matches[2])
     }
-    # Modul 2 otevreni podmenu: x21..x27
-    if ($c -match '^[xX]2([1-7])$') {
+    # Modul 2 otevreni podmenu: x21..x27 nebo 4-mistny x2100..x2700
+    if ($c -match '^[xX]2([1-7])0*$') {
         return @('2', $Matches[1])
     }
 
@@ -93,16 +93,16 @@ function Resolve-QuickNavPath {
         return @($Matches[1], $Matches[2], $Matches[3])
     }
 
-    # Modul 1 nebo 3: otevreni podmenu napr. x11..x19, x31..x33
-    if ($c -match '^[xX]1([1-9])$') {
+    # Modul 1 nebo 3: otevreni podmenu napr. x11..x19, x31..x33 nebo 4-mistny x1100..x1900, x3100..x3300
+    if ($c -match '^[xX]1([1-9])0*$') {
         return @('1', $Matches[1])
     }
-    if ($c -match '^[xX]3([1-3])$') {
+    if ($c -match '^[xX]3([1-3])0*$') {
         return @('3', $Matches[1])
     }
 
-    # Pouze modul: x1, x2, x3
-    if ($c -match '^[xX]([123])$') {
+    # Pouze modul: x1, x2, x3 nebo 4-mistny x1000, x2000, x3000
+    if ($c -match '^[xX]([123])0*$') {
         return @($Matches[1])
     }
 
@@ -1174,8 +1174,10 @@ function Enable-CloudflareDoH {
             $configured = $existing | Where-Object { $_.ServerAddress -eq $address } | Select-Object -First 1
             if ($configured) {
                 if ($configured.DohTemplate -ne $template -or -not $configured.AutoUpgrade -or $configured.AllowFallbackToUdp) {
-                    Write-Host "  CHYBA: $address uz ma jinou nebo mene prisnou DoH konfiguraci; nemenim ji automaticky." -ForegroundColor Red
-                    return
+                    Write-Host "  Aktualizuji existujici DoH konfiguraci pro $address..." -ForegroundColor DarkGray
+                    Set-DnsClientDohServerAddress -ServerAddress $address -DohTemplate $template `
+                        -AutoUpgrade $true -AllowFallbackToUdp $false -ErrorAction Stop
+                    Write-Host "  DoH aktualizovano pro $address" -ForegroundColor Green
                 }
                 continue
             }
@@ -3788,19 +3790,48 @@ function Show-StoppedServices {
 }
 
 function Show-AdminAccountAudit {
-    Write-Header "Kontrola administratorskych prav aktualniho uctu"
+    Write-Header "Kontrola administratorskych prav a uctu"
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object -TypeName Security.Principal.WindowsPrincipal -ArgumentList $identity
     $isAdministrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
-    Write-Host "  Aktualni ucet: $($identity.Name)" -ForegroundColor White
+    Write-Host "  Proces skriptu bezi pod: $($identity.Name)" -ForegroundColor White
     if ($isAdministrator) {
-        Write-Host "  Ucet je clenem administratorske skupiny." -ForegroundColor Red
-        Write-Host "  Pro bezne brouzdani pouzivejte samostatny standardni ucet." -ForegroundColor Yellow
-    } else {
-        Write-Host "  Aktualni ucet nema administratorska prava." -ForegroundColor Green
+        Write-Host "  Stav procesu: Bezi s pravy Administratora (nutne pro tento skript)." -ForegroundColor Cyan
     }
-    Write-Host "  Poznamka: kontrola ukazuje aktualni ucet, ne to, ktery ucet pouzivate denne." -ForegroundColor DarkGray
+
+    Write-Host ""
+    Write-Host "  Prehled mistnich uzivatelskych uctu:" -ForegroundColor DarkGray
+    try {
+        $localUsers = @(Get-LocalUser -ErrorAction SilentlyContinue | Where-Object { $_.Enabled })
+        $hasStandard = $false
+        foreach ($u in $localUsers) {
+            $inAdmin = $false
+            try {
+                $grp = [ADSI]"WinNT://./Administrators,group"
+                $members = @($grp.Invoke("Members")) | ForEach-Object { $_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null) }
+                if ($u.Name -in $members) { $inAdmin = $true }
+            } catch { }
+
+            if ($inAdmin) {
+                Write-Host "    - $($u.Name) [ADMINISTRATOR]" -ForegroundColor Red
+            } else {
+                $hasStandard = $true
+                Write-Host "    - $($u.Name) [STANDARDNI UCET - BEZPECNE]" -ForegroundColor Green
+            }
+        }
+        Write-Host ""
+        if (-not $hasStandard) {
+            Write-Host "  [!] UPOZORNENI: Vsechny aktivni ucty v PC maji administratorska prava!" -ForegroundColor Red
+            Write-Host "      Doporuceni: Pro bezne denni surfovani a praci si vytvorte samostatny" -ForegroundColor Yellow
+            Write-Host "      STANDARDNI ucet (Nastaveni > Ucty > Dalsi uzivatele)." -ForegroundColor Yellow
+            Write-Host "      Pokud malware spusti standardni uzivatel, nemuze napadnout cely system!" -ForegroundColor DarkGray
+        } else {
+            Write-Host "  [OK] V systemu existuje standardni ucet. Pro bezne surfovani pouzivejte ten." -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  CHYBA pri kontrole uctu: $_" -ForegroundColor Red
+    }
 }
 
 function Get-PowerShellV2Features {
@@ -3816,15 +3847,10 @@ function Get-PowerShellV2Features {
 function Show-PowerShellV2Status {
     Write-Header "Stav volitelne funkce Windows PowerShell 2.0"
     try {
-        $features = @(Get-PowerShellV2Features)
+        $features = @(Get-PowerShellV2Features | Sort-Object FeatureName)
         if ($features.Count -eq 0) {
             Write-Host "  PowerShell 2.0 neni v teto edici Windows dostupny." -ForegroundColor Green
             return
-        }
-        if ($Enabled) {
-            $features = @($features | Sort-Object { if ($_.FeatureName -like "*Root") { 0 } else { 1 } })
-        } else {
-            $features = @($features | Sort-Object { if ($_.FeatureName -like "*Root") { 1 } else { 0 } })
         }
         foreach ($feature in $features) {
             $color = if ($feature.State -eq "Enabled") { "Red" } else { "Green" }
@@ -3844,6 +3870,12 @@ function Set-PowerShellV2State {
         if ($features.Count -eq 0) {
             Write-Host "  PowerShell 2.0 neni v teto edici Windows dostupny." -ForegroundColor Green
             return
+        }
+        # Pri povoleni musi byt Root povolen prvni; pri zakazani musi byt Root zakazan az naposledy
+        if ($Enabled) {
+            $features = @($features | Sort-Object { if ($_.FeatureName -like "*Root") { 0 } else { 1 } })
+        } else {
+            $features = @($features | Sort-Object { if ($_.FeatureName -like "*Root") { 1 } else { 0 } })
         }
         foreach ($feature in $features) {
             if ($Enabled -and $feature.State -eq "Enabled") {
@@ -3899,14 +3931,52 @@ function Show-ScriptFileAssociationAudit {
 }
 
 function Show-BrowserExtensionAudit {
-    Write-Header "Prehled rozsireni Chrome a Edge"
+    Write-Header "Prehled rozsireni prohlizecu (Chrome, Edge, Brave) a jejich opravneni"
     $browserRoots = @(
         @{ Name = "Google Chrome"; Path = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data" },
-        @{ Name = "Microsoft Edge"; Path = Join-Path $env:LOCALAPPDATA "Microsoft\Edge\User Data" }
+        @{ Name = "Microsoft Edge"; Path = Join-Path $env:LOCALAPPDATA "Microsoft\Edge\User Data" },
+        @{ Name = "Brave Browser"; Path = Join-Path $env:LOCALAPPDATA "BraveSoftware\Brave-Browser\User Data" }
     )
+
+    $criticalPermDict = @{
+        'nativeMessaging'              = 'KOMUNIKACE S OS: Muze volat lokalni aplikace na PC a spoustet procesy mimo sandbox prohlizece'
+        'debugger'                     = 'DEBUGGER: Plna kontrola nad prohlizecem, zachytavani hesel a manipulace s pameti'
+        'webRequestBlocking'           = 'BLOKACE/MODIFIKACE PROVOZU: Muze zachytavat, blokovat i upravovat HTTP/HTTPS pozadavky a hlavicky'
+        'webRequest'                   = 'ODPOSLECH SITOVEHO PROVOZU: Muze sledovat veskerou sitovou komunikaci, URL adresy i odesilana data'
+        'declarativeNetRequest'        = 'SITOVA PRAVIDLA: Muze presmerovavat pozadavky a modifikovat hlavicky'
+        'declarativeNetRequestFeedback'= 'DETAILNI CTENI SITOVEHO FILTRU: Pristup k detailum zachyceneho sitoveho provozu'
+        'cookies'                      = 'CTENI A ZAPIS COOKIES: Riziko kradeze prihlasovacich relaci (Session Hijacking) pro ucty i banky'
+        'proxy'                        = 'SPRAVA PROXY: Muze presmerovat veskery webovy provoz pocitace na cizi server (MitM utok)'
+        'privacy'                      = 'ZMENA SOUKROMI: Muze zmenit nebo vypnout vestavenou ochranu prohlizece'
+        'management'                   = 'SPRAVA DOPLNKU: Muze vypinat nebo instalovat jina rozsireni vcetne bezpecnostnich'
+        'clipboardRead'                = 'CTENI ZE SCHRANKY: Muze cist zkopirovana hesla, platebni udaje a tokeny ze schranky'
+    }
+
+    $warningPermDict = @{
+        'clipboardWrite' = 'Zapis do schranky: Muze menit zkopirovany text (napr. podvrzeni cisla bankovniho uctu)'
+        'scripting'      = 'Injekce skriptu: Muze vkladat JavaScript do otevrenych webovych stranek'
+        'tabs'           = 'Pristup k zalozkam: Vidi URL a titulky vsech otevrenych webovych oken'
+        'downloads'      = 'Stahovani souboru: Muze zahajit stahovani a spravovat soubory'
+        'history'        = 'Historie prohlizeni: Pristup k cele historii navstivenych stranek'
+        'bookmarks'      = 'Zalozky: Pristup k ulozenym zalozkam'
+        'geolocation'    = 'Geolokace: Zjistovani fyzicke polohy zarizeni'
+        'desktopCapture' = 'Nahravani obrazovky: Snimani cele plochy pocitace'
+        'tabCapture'     = 'Nahravani zalozky: Snimani audio/video obsahu zalozky'
+        'webNavigation'  = 'Sledovani navigace: Detailni prehled o kazdem presmerovani mezi weby'
+    }
+
     $found = $false
+    $totalCount = 0
+    $criticalCount = 0
+
     foreach ($browser in $browserRoots) {
-        if (-not (Test-Path -LiteralPath $browser.Path)) { continue }
+        $pathExists = $false
+        try {
+            $pathExists = Test-Path -LiteralPath $browser.Path -ErrorAction Stop
+        } catch {
+            continue
+        }
+        if (-not $pathExists) { continue }
         try {
             $profiles = @(Get-ChildItem -LiteralPath $browser.Path -Directory -ErrorAction Stop |
                 Where-Object { $_.Name -eq "Default" -or $_.Name -like "Profile *" })
@@ -3916,7 +3986,13 @@ function Show-BrowserExtensionAudit {
         }
         foreach ($profile in $profiles) {
             $extensionRoot = Join-Path $profile.FullName "Extensions"
-            if (-not (Test-Path -LiteralPath $extensionRoot)) { continue }
+            $extRootExists = $false
+            try {
+                $extRootExists = Test-Path -LiteralPath $extensionRoot -ErrorAction Stop
+            } catch {
+                continue
+            }
+            if (-not $extRootExists) { continue }
             try {
                 $manifests = @(Get-ChildItem -LiteralPath $extensionRoot -Filter "manifest.json" -File -Recurse -ErrorAction Stop)
             } catch {
@@ -3925,36 +4001,170 @@ function Show-BrowserExtensionAudit {
             }
             foreach ($manifestFile in $manifests) {
                 $found = $true
+                $totalCount++
                 try {
                     $manifest = Get-Content -LiteralPath $manifestFile.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-                    $name = if ($manifest.name -and $manifest.name -notmatch '^__MSG_') { $manifest.name } else { Split-Path (Split-Path $manifestFile.DirectoryName -Parent) -Leaf }
-                    Write-Host "  $($browser.Name) / $($profile.Name): $name v$($manifest.version)" -ForegroundColor Cyan
-                    Write-Host "    ID/cesta: $($manifestFile.Directory.Parent.Name) | $($manifestFile.DirectoryName)" -ForegroundColor Gray
+                    $name = $manifest.name
+                    if ($name -match '^__MSG_([A-Za-z0-9_@]+)__$') {
+                        $msgKey = $matches[1]
+                        $localesDir = Join-Path $manifestFile.DirectoryName "_locales"
+                        $resolved = $false
+                        if (Test-Path -LiteralPath $localesDir) {
+                            $langs = @('cs', 'en', 'en_US', 'en_GB')
+                            foreach ($lang in $langs) {
+                                $msgFile = Join-Path $localesDir "$lang\messages.json"
+                                if (Test-Path -LiteralPath $msgFile) {
+                                    try {
+                                        $localeJson = Get-Content -LiteralPath $msgFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                                        if ($localeJson.$msgKey -and $localeJson.$msgKey.message) {
+                                            $name = $localeJson.$msgKey.message
+                                            $resolved = $true
+                                            break
+                                        }
+                                    } catch {}
+                                }
+                            }
+                        }
+                        if (-not $resolved) {
+                            $name = Split-Path (Split-Path $manifestFile.DirectoryName -Parent) -Leaf
+                        }
+                    } elseif ([string]::IsNullOrWhiteSpace($name)) {
+                        $name = Split-Path (Split-Path $manifestFile.DirectoryName -Parent) -Leaf
+                    }
+                    $extId = Split-Path (Split-Path $manifestFile.DirectoryName -Parent) -Leaf
+                    
+                    # Analyza opravneni
+                    $allPerms = [System.Collections.Generic.List[string]]::new()
+                    if ($manifest.permissions) {
+                        foreach ($p in $manifest.permissions) { if (-not [string]::IsNullOrWhiteSpace($p)) { $allPerms.Add($p.Trim()) } }
+                    }
+                    if ($manifest.host_permissions) {
+                        foreach ($hp in $manifest.host_permissions) { if (-not [string]::IsNullOrWhiteSpace($hp)) { $allPerms.Add($hp.Trim()) } }
+                    }
+                    if ($manifest.optional_permissions) {
+                        foreach ($op in $manifest.optional_permissions) { if (-not [string]::IsNullOrWhiteSpace($op)) { $allPerms.Add("volitelne:$($op.Trim())") } }
+                    }
+
+                    $criticalList = [System.Collections.Generic.List[string]]::new()
+                    $warningList  = [System.Collections.Generic.List[string]]::new()
+                    $normalList   = [System.Collections.Generic.List[string]]::new()
+
+                    foreach ($p in $allPerms) {
+                        $barePerm = $p -replace '^volitelne:', ''
+                        $isAllUrls = ($barePerm -eq '<all_urls>' -or $barePerm -match '^[a-z*]+://\*/.*' -or $barePerm -match '^[a-z*]+://\*\.\*/.*')
+                        if ($criticalPermDict.ContainsKey($barePerm)) {
+                            $criticalList.Add("$p -> $($criticalPermDict[$barePerm])")
+                        } elseif ($isAllUrls) {
+                            $criticalList.Add("$p -> PRISTUP KE VSEM WEBOVYM STRANKAM (cteni a manipulace s obsahem libovolneho webu, hesel, cookies)")
+                        } elseif ($warningPermDict.ContainsKey($barePerm)) {
+                            $warningList.Add("$p -> $($warningPermDict[$barePerm])")
+                        } else {
+                            $normalList.Add($p)
+                        }
+                    }
+
+                    # Overeni automatickych content skriptu pro vsechny weby
+                    if ($manifest.content_scripts) {
+                        foreach ($cs in $manifest.content_scripts) {
+                            if ($cs.matches) {
+                                foreach ($m in $cs.matches) {
+                                    if ($m -eq '<all_urls>' -or $m -match '^[a-z*]+://\*/.*' -or $m -match '^[a-z*]+://\*\.\*/.*') {
+                                        $csMsg = "Content Script ($m) -> Automaticka injekce JavaScriptu do kazde otevrene stranky"
+                                        if (-not $criticalList.Contains($csMsg)) { $criticalList.Add($csMsg) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    # Vypis informaci o doplnku
+                    $hasCritical = $criticalList.Count -gt 0
+                    if ($hasCritical) { $criticalCount++ }
+
+                    $headerColor = if ($hasCritical) { 'Red' } elseif ($warningList.Count -gt 0) { 'Yellow' } else { 'Cyan' }
+                    Write-Host "  [$($browser.Name) / $($profile.Name)] " -NoNewline -ForegroundColor White
+                    Write-Host "$name v$($manifest.version)" -ForegroundColor $headerColor
+                    Write-Host "    ID: $extId | Slozka: $($manifestFile.DirectoryName)" -ForegroundColor DarkGray
+
+                    if ($hasCritical) {
+                        Write-Host "    KRITICKA OPRAVNENI (vysoke riziko pro bezpecnost PC a dat):" -ForegroundColor Red
+                        foreach ($cItem in $criticalList) {
+                            Write-Host "      [!] $cItem" -ForegroundColor Red
+                        }
+                    }
+
+                    if ($warningList.Count -gt 0) {
+                        Write-Host "    ZVYSENE RIZIKO (pristup k historii/zalozkam/schrance):" -ForegroundColor Yellow
+                        foreach ($wItem in $warningList) {
+                            Write-Host "      [~] $wItem" -ForegroundColor Yellow
+                        }
+                    }
+
+                    if ($normalList.Count -gt 0) {
+                        $normalStr = ($normalList -join ', ')
+                        Write-Host "    Bezna opravneni: $normalStr" -ForegroundColor Gray
+                    }
+
+                    if ($criticalList.Count -eq 0 -and $warningList.Count -eq 0 -and $normalList.Count -eq 0) {
+                        Write-Host "    Opravneni: Zadna specialni opravneni nejsou vyzadovana" -ForegroundColor DarkGray
+                    }
+
+                    Write-Host ""
                 } catch {
                     Write-Host "  CHYBA pri cteni manifestu '$($manifestFile.FullName)': $_" -ForegroundColor Red
                 }
             }
         }
     }
+
     if (-not $found) {
-        Write-Host "  Nebyla nalezena zadna rozsireni v profilech Chrome nebo Edge." -ForegroundColor Yellow
+        Write-Host "  Nebyla nalezena zadna rozsireni v profilech Chrome, Edge nebo Brave." -ForegroundColor Yellow
+    } else {
+        Write-Host "  ============================================================" -ForegroundColor DarkGray
+        Write-Host "  Celkem nalezeno doplnku: $totalCount" -ForegroundColor White
+        if ($criticalCount -gt 0) {
+            Write-Host "  POZOR: $criticalCount doplnek/doplnku vyzaduje KRITICKA opravneni!" -ForegroundColor Red
+            Write-Host "  Doplnky s opravnenim 'nativeMessaging' mohou volat externi programy v PC (mimo sandbox)." -ForegroundColor Yellow
+            Write-Host "  Doplnky s '<all_urls>' nebo 'webRequestBlocking' mohou sledovat a menit citliva data." -ForegroundColor Yellow
+        } else {
+            Write-Host "  Zadny z nalezenych doplnku nevyzaduje kriticka systemova opravneni." -ForegroundColor Green
+        }
     }
     Write-Host ""
-    Write-Host "  Jde o inventar, ne overeni podpisu ani duveryhodnosti. Neznama rozsireni overte v nastaveni prohlizece." -ForegroundColor Yellow
+    Write-Host "  Vysvetlivka: Cervena = Kriticka opravneni (OS/Sit/Hesla) | Zluta = Zvysene riziko | Seda = Bezna" -ForegroundColor DarkGray
+    Write-Host "  Jde o audit deklarovanych prav z manifestu. Neznama rozsireni zkontrolujte v nastaveni prohlizece." -ForegroundColor DarkGray
 }
 
 function Show-BackupAndVssAudit {
-    Write-Header "Kontrola zaloh a stinovych kopii"
+    Write-Header "Kontrola zaloh, bodu obnovy a stinovych kopii"
+    
+    Write-Host "  Body obnovy systemu (System Restore):" -ForegroundColor White
+    try {
+        $restorePoints = Get-ComputerRestorePoint -ErrorAction SilentlyContinue
+        if ($restorePoints -and $restorePoints.Count -gt 0) {
+            foreach ($rp in $restorePoints) {
+                $rpDate = if ($rp.CreationTime) { $rp.CreationTime } else { $rp.ConvertToDateTime($rp.CreationTime) }
+                Write-Host "    #$($rp.SequenceNumber) [$rpDate] - $($rp.Description) (Typ: $($rp.RestorePointType))" -ForegroundColor Cyan
+            }
+        } else {
+            Write-Host "    Nebyly nalezeny zadne body obnovy (nebo je Ochrana systemu vypnuta)." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "    Nelze precist body obnovy systemu: $_" -ForegroundColor DarkGray
+    }
+    Write-Host ""
+
+    Write-Host "  Stinove kopie a sluzba VSS:" -ForegroundColor White
     try {
         $vss = Get-Service -Name VSS -ErrorAction Stop
-        Write-Host "  Sluzba Volume Shadow Copy: $($vss.Status) (spousti se podle potreby)" -ForegroundColor Cyan
+        Write-Host "    Sluzba Volume Shadow Copy: $($vss.Status) (spousti se podle potreby)" -ForegroundColor Cyan
     } catch {
-        Write-Host "  CHYBA pri zjistovani sluzby Volume Shadow Copy: $_" -ForegroundColor Red
+        Write-Host "    CHYBA pri zjistovani sluzby Volume Shadow Copy: $_" -ForegroundColor Red
     }
 
     $vssadmin = Get-Command vssadmin.exe -ErrorAction SilentlyContinue
     if (-not $vssadmin) {
-        Write-Host "  CHYBA: vssadmin.exe neni dostupny; stav stinovych kopii nelze overit." -ForegroundColor Red
+        Write-Host "    CHYBA: vssadmin.exe neni dostupny; stav stinovych kopii nelze overit." -ForegroundColor Red
     } else {
         $vssArguments = @(
             @("list", "shadows"),
@@ -3963,22 +4173,25 @@ function Show-BackupAndVssAudit {
         foreach ($arguments in $vssArguments) {
             $argumentLabel = $arguments -join " "
             Write-Host ""
-            Write-Host "  vssadmin $argumentLabel" -ForegroundColor DarkGray
+            Write-Host "    vssadmin $argumentLabel" -ForegroundColor DarkGray
             try {
                 $output = & $vssadmin.Source @arguments 2>&1
                 if ($LASTEXITCODE -ne 0) {
-                    Write-Host "  CHYBA: vssadmin skoncil s kodem $LASTEXITCODE." -ForegroundColor Red
+                    Write-Host "    CHYBA: vssadmin skoncil s kodem $LASTEXITCODE." -ForegroundColor Red
                 }
-                if ($output) { $output | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray } }
-                else { Write-Host "  Prikaz nevratil zadny vystup." -ForegroundColor Yellow }
+                if ($output) { $output | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray } }
+                else { Write-Host "    Prikaz nevratil zadny vystup." -ForegroundColor Yellow }
             } catch {
-                Write-Host "  CHYBA pri spusteni vssadmin: $_" -ForegroundColor Red
+                Write-Host "    CHYBA pri spusteni vssadmin: $_" -ForegroundColor Red
             }
         }
     }
     Write-Host ""
-    Write-Host "  3-2-1: 3 kopie dat, 2 ruzna media, 1 kopie offline nebo mimo domov." -ForegroundColor Yellow
-    Write-Host "  Stinove kopie nejsou nahradou nezavisle offline zalohy." -ForegroundColor DarkGray
+    Write-Host "  Doporucene pravidlo 3-2-1 pro domaci PC:" -ForegroundColor Yellow
+    Write-Host "    3 kopie dulezitych dat (original + 2 zalohy)" -ForegroundColor DarkGray
+    Write-Host "    2 ruzne druhy medii (napr. lokalni disk + externi USB / sitove uloziste)" -ForegroundColor DarkGray
+    Write-Host "    1 kopie ulozena oddelene / offline (ochrana pred ransomwarem, ktery ma pristup k zapojenym diskum)" -ForegroundColor DarkGray
+    Write-Host "  Stinove kopie (VSS) ani body obnovy nejsou nahradou nezavisle offline zalohy!" -ForegroundColor Yellow
 }
 
 function Show-Menu-HomePC {
@@ -3989,10 +4202,10 @@ function Show-Menu-HomePC {
         Write-MenuItem "2" "Stav volitelne funkce PowerShell 2.0"
         Write-MenuItem "3" "Zakazat PowerShell 2.0 (muze vyzadovat restart)" Green
         Write-MenuItem "4" "Povolit PowerShell 2.0 (kompatibilita)" Yellow
-        Write-MenuItem "5" "Prehled rozsireni Chrome a Edge"
+        Write-MenuItem "5" "Prehled rozsireni prohlizecu a audit opravneni (Chrome, Edge, Brave)"
         Write-MenuItem "6" "Audit asociaci .vbs/.js/.hta/.wsf"
         Write-MenuItem "7" "Otevrit nastaveni vychozich aplikaci"
-        Write-MenuItem "8" "Kontrola VSS a pruvodce zalohami"
+        Write-MenuItem "8" "Kontrola zaloh, bodu obnovy a stinovych kopii"
         Write-Host ""
         Write-MenuItem "0" "Zpet do hlavniho menu" -Color Yellow
         Write-Host ""
@@ -4015,7 +4228,7 @@ function Show-Menu-HomePC {
 
 function Show-Users {
     Write-Header "Lokalni uzivatele"
-    Write-Host "  Seznam lokalniŃh uzivatelu:" -ForegroundColor Yellow
+    Write-Host "  Seznam lokalnich uzivatelu:" -ForegroundColor Yellow
     Write-Host ""
     
     try {

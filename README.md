@@ -75,8 +75,8 @@ Místo zdlouhavého procházení menu stačí zadat **x-kód** a skript vás př
 
 > **Novinka / Oprava QuickNav:** 
 > - **Funguje odkudkoliv:** Rychlokódy můžete zadat v **jakémkoliv menu i podmenu**, nemusíte se vracet na začátek.
-> - **Okamžitý reset / návrat:** Zadáním **`x0000`** (nebo `x0`) se z libovolného zanořeného menu okamžitě vrátíte do hlavního výběru modulu (Root). Pokud zadáte `0` nebo `x0000` v hlavním menu, skript se ukončí.
-> - **Podpora formátů:** Podporovány jsou standardní kódy (`x193`, `x265`), 4-místné kódy s nulou (`x1102`, `x1903`, `x0000`) i přímé hlavní akce (`x10` = Zapnout vše, `x99` = Přehled stavu).
+> - **Okamžitý reset / návrat:** Zadáním **`x0000`** (nebo `x0`, `0000`) se z libovolného zanořeného menu okamžitě vrátíte do hlavního výběru modulu (Root). Pokud zadáte `0` nebo `x0000` v hlavním menu, skript se ukončí.
+> - **Podpora formátů:** Podporovány jsou standardní kódy (`x193`, `x265`), 4-místné kódy s nulou (`x1102`, `x1903`, `x0000`, `x1000`–`x3000`, `x1100`–`x2700`), i přímé hlavní akce (`x10` = Zapnout vše, `x99` = Přehled stavu).
 
 ### Formát
 
@@ -323,10 +323,10 @@ Po provedení volby se skript zastaví v příslušném podmenu pro další inte
 | `x272` | Stav volitelné funkce PowerShell 2.0 |
 | `x273` | Zakázat PowerShell 2.0 (může vyžadovat restart) |
 | `x274` | Znovu povolit PowerShell 2.0 pro případnou kompatibilitu |
-| `x275` | Inventář rozšíření Chrome a Edge (neověřuje jejich podpis ani důvěryhodnost) |
+| `x275` | Audit rozšíření prohlížečů (Chrome, Edge, Brave) a jejich oprávnění — červeně zvýrazňuje kritická oprávnění (`nativeMessaging`, `<all_urls>`, `debugger`, `webRequestBlocking`, `cookies`) |
 | `x276` | Audit asociací `.vbs`, `.js`, `.hta` a `.wsf` |
 | `x277` | Otevřít nastavení výchozích aplikací Windows |
-| `x278` | Stav stínových kopií VSS a doporučení pro zálohování 3-2-1 |
+| `x278` | Stav bodů obnovy systému (System Restore), stínových kopií VSS a pravidlo zálohování 3-2-1 |
 
 ---
 
