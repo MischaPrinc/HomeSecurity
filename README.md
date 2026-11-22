@@ -1,4 +1,4 @@
-﻿# PC Security Suite — Nástroj pro Zabezpečení Domácího PC
+# PC Security Suite — Nástroj pro Zabezpečení Domácího PC
 
 Komplexní sada interaktivních PowerShell nástrojů pro pokročilé zabezpečení, monitoring a hardening pracovních stanic s Windows 10 a 11. Skripty jsou navrženy pro domácí uživatele i pokročilejší správce — přehledné menu, žádné ruční editace registrů.
 
@@ -69,9 +69,14 @@ powershell -ExecutionPolicy Bypass -File .\pc-suite.ps1
 
 ---
 
-## QuickNav — rychlé kódy
+## QuickNav — rychlé kódy a globální navigace
 
-Místo procházení menu stačí na výzvu `Vyberte modul` zadat x-kód a skript vás přenese přímo na požadovanou volbu.
+Místo zdlouhavého procházení menu stačí zadat **x-kód** a skript vás přenese přímo na požadovanou volbu.
+
+> **Novinka / Oprava QuickNav:** 
+> - **Funguje odkudkoliv:** Rychlokódy můžete zadat v **jakémkoliv menu i podmenu**, nemusíte se vracet na začátek.
+> - **Okamžitý reset / návrat:** Zadáním **`x0000`** (nebo `x0`) se z libovolného zanořeného menu okamžitě vrátíte do hlavního výběru modulu (Root). Pokud zadáte `0` nebo `x0000` v hlavním menu, skript se ukončí.
+> - **Podpora formátů:** Podporovány jsou standardní kódy (`x193`, `x265`), 4-místné kódy s nulou (`x1102`, `x1903`, `x0000`) i přímé hlavní akce (`x10` = Zapnout vše, `x99` = Přehled stavu).
 
 ### Formát
 
@@ -81,25 +86,38 @@ x{modul}{podmenu}{volba}
 
 | Část | Popis |
 |------|-------|
-| `x` | prefix (povinný) |
-| `{modul}` | 1 = Zabezpečení, 2 = Monitoring, 3 = WDAC+Makra |
-| `{podmenu}` | číslo podmenu (pro modul 1: 1–9, modul 3: 1–3; modul 2 nemá podmenu) |
-| `{volba}` | číslo volby v podmenu (1–21) |
+| `x` | prefix |
+| `{modul}` | `1` = Zabezpečení, `2` = Monitoring, `3` = WDAC+Makra |
+| `{podmenu}` | číslo podmenu (Modul 1: `1–9`, Modul 2: `1–7`, Modul 3: `1–3`) |
+| `{volba}` | číslo volby v podmenu |
 
 **Příklady:**
 ```
-x1411   → Modul 1, podmenu 4 (Systém+Logování), volba 11 (nedefinovaná — ukázka formátu)
-x193    → Modul 1, podmenu 9 (Pokročilé), volba 3  → Zapnout LSA PPL
+x0000   → Reset do hlavního výběru modulů odkudkoliv
+x10     → Modul 1: ZAPNOUT VŠE (Maximum zabezpečení) s vytvořením bodu obnovy
+x199    → Modul 1: Kompletní přehled stavu
+x193    → Modul 1, podmenu 9 (Pokročilé), volba 3 → Zapnout LSA PPL
 x112    → Modul 1, podmenu 1 (Defender+ASR), volba 2 → ASR BLOKOVAT [DOPORUČENO]
-x26     → Modul 2, volba 6  → Historie příkazů a detekce hrozeb
+x211    → Modul 2, podmenu 1 (Security Events), volba 1 → Neúspěšná přihlášení (4625)
+x257    → Modul 2, podmenu 5 (Systém), volba 7 → Kontrola výjimek Windows Defenderu
+x265    → Modul 2, podmenu 6 (Detekce), volba 5 → Podezřelé parent-child procesy
+x271    → Modul 2, podmenu 7 (Domácí PC), volba 1 → Kontrola administrátorských práv
+x29     → Modul 2: Rychlý přehled systému (dashboard)
+x2E     → Modul 2: Export všech dat do souboru
 x311    → Modul 3, podmenu 1 (WDAC), volba 1 → Vytvořit WDAC politiku (Audit)
+x3115   → Modul 3, podmenu 1 (WDAC), volba 15 → Zobrazit zablokované aplikace
 ```
 
-Po provedení volby se skript vrátí do normálního interaktivního režimu daného podmenu.
+Po provedení volby se skript zastaví v příslušném podmenu pro další interakci.
 
 ---
 
-### Modul 1 — Zabezpečení: všechny rychlokódy
+### Modul 1 — Zabezpečení: rychlokódy
+
+| Kód | Akce |
+|-----|------|
+| `x10` / `x110` | **ZAPNOUT VŠE (Maximum zabezpečení)** — vytvoří Bod obnovy a aplikuje doporučená nastavení ✅ |
+| `x99` / `x199` | **Kompletní přehled stavu zabezpečení** |
 
 #### Podmenu 1 — Defender + ASR (`x11...`)
 
@@ -144,6 +162,8 @@ Po provedení volby se skript vrátí do normálního interaktivního režimu da
 | `x136` | SMBv1 — POVOLIT |
 | `x137` | LLMNR — ZAKÁZAT ✅ |
 | `x138` | LLMNR — POVOLIT |
+| `x139` | WPAD (Web Proxy Auto-Discovery) — ZAKÁZAT ✅ |
+| `x1310`| WPAD — POVOLIT |
 
 #### Podmenu 4 — Systém + Logování (`x14...`)
 
@@ -172,6 +192,8 @@ Po provedení volby se skript vrátí do normálního interaktivního režimu da
 | `x163` | Cloudflare malware + dospělý obsah (1.1.1.3) ✅ |
 | `x164` | Cloudflare standard (1.1.1.1) |
 | `x165` | Reset DNS na DHCP |
+| `x166` | Zobrazit konfiguraci DNS-over-HTTPS |
+| `x167` | Nastavit Cloudflare DoH (vyžaduje potvrzení; zakáže UDP fallback) |
 
 #### Podmenu 7 — Další doporučení (`x17...`)
 
@@ -221,18 +243,90 @@ Po provedení volby se skript vrátí do normálního interaktivního režimu da
 
 ---
 
-### Modul 2 — Monitoring: všechny rychlokódy (`x2...`)
+### Modul 2 — Monitoring: rychlokódy (`x2...`)
 
 | Kód | Akce |
 |-----|------|
-| `x21` | Bezpečnostní události (Security Events) |
-| `x22` | Spuštěné procesy |
-| `x23` | Síťová připojení |
-| `x24` | Skriptovací procesy (PS/CMD/WMI) |
-| `x25` | Systém a správa (služby/úlohy/uživatelé) |
-| `x26` | Historie příkazů a detekce hrozeb |
-| `x29` | Rychlý přehled systému (dashboard) |
-| `x2E` | Export všech dat do souboru |
+| `x29` | **Rychlý přehled systému (dashboard)** |
+| `x2E` | **Export všech dat do souboru** (Desktop) |
+
+#### Podmenu 1 — Bezpečnostní události (`x21...`)
+
+| Kód | Akce |
+|-----|------|
+| `x21` | Otevřít menu Bezpečnostní události |
+| `x211` | Neúspěšné pokusy o přihlášení (Event ID 4625) |
+| `x212` | Úspěšná přihlášení (Event ID 4624) |
+| `x213` | Kritické bezpečnostní události (včetně smazání logu 1102) |
+| `x214` | Persistence Events (nové tasky, služby, IFEO, Winlogon) |
+
+#### Podmenu 2 — Spuštěné procesy (`x22...`)
+
+| Kód | Akce |
+|-----|------|
+| `x22` | Otevřít menu Spuštěné procesy |
+| `x221` | Všechny procesy (top 30) |
+| `x222` | Všechny procesy (kompletní) |
+| `x223` | Nepodepsané a podezřelé procesy |
+| `x224` | Procesy ze podezřelých cest (Temp/AppData/Downloads/Public) |
+
+#### Podmenu 3 — Síťová připojení (`x23...`)
+
+| Kód | Akce |
+|-----|------|
+| `x23` | Otevřít menu Síťová připojení |
+| `x231` | Otevřené porty (LISTENING) |
+| `x232` | Aktivní spojení (ESTABLISHED) |
+| `x233` | DNS cache (podezřelé domény, krátké TTL < 300s) |
+
+#### Podmenu 4 — Skriptovací procesy (`x24...`)
+
+| Kód | Akce |
+|-----|------|
+| `x24` | Otevřít menu Skriptovací procesy |
+| `x241` | PowerShell procesy |
+| `x242` | CMD procesy |
+| `x243` | WMI procesy |
+| `x244` | Všechny skriptovací procesy (PS + CMD + WMI) |
+
+#### Podmenu 5 — Systém a správa (`x25...`)
+
+| Kód | Akce |
+|-----|------|
+| `x25` | Otevřít menu Systém a správa |
+| `x251` | Naplánované úlohy (Scheduled Tasks — jen non-Microsoft) |
+| `x252` | Běžící služby |
+| `x253` | Zastavené automatické služby |
+| `x254` | Lokální uživatelé |
+| `x255` | Lokální skupiny a členové |
+| `x256` | Programy spouštěné při startu (Startup / Run keys) |
+| `x257` | **Windows Defender — Kontrola výjimek (ExclusionPath/Ext/Proc)** ✅ |
+| `x258` | **Audit souboru HOSTS (kontrola podvrženého přesměrování)** ✅ |
+
+#### Podmenu 6 — Historie příkazů a detekce hrozeb (`x26...`)
+
+| Kód | Akce |
+|-----|------|
+| `x26` | Otevřít menu Historie příkazů |
+| `x261` | PowerShell Script Block Logging historie (Event ID 4104) |
+| `x262` | Process Creation historie (Event ID 4688) |
+| `x263` | Sysmon Process Creation (Event ID 1) |
+| `x264` | WMI Event Subscription (Persistence) |
+| `x265` | **Podezřelé parent-child procesy** (Office→CMD/PS, mshta apod.) |
+| `x266` | Kompletní analýza (vše najednou) |
+
+#### Podmenu 7 — Doplňkové kontroly domácího PC (`x27...`)
+
+| Kód | Akce |
+|-----|------|
+| `x271` | Kontrola práv aktuálního účtu — upozornění, pokud má administrátorská práva |
+| `x272` | Stav volitelné funkce PowerShell 2.0 |
+| `x273` | Zakázat PowerShell 2.0 (může vyžadovat restart) |
+| `x274` | Znovu povolit PowerShell 2.0 pro případnou kompatibilitu |
+| `x275` | Inventář rozšíření Chrome a Edge (neověřuje jejich podpis ani důvěryhodnost) |
+| `x276` | Audit asociací `.vbs`, `.js`, `.hta` a `.wsf` |
+| `x277` | Otevřít nastavení výchozích aplikací Windows |
+| `x278` | Stav stínových kopií VSS a doporučení pro zálohování 3-2-1 |
 
 ---
 
@@ -294,10 +388,10 @@ Interaktivní menu s hierarchickým systémem podmenu. Každá volba zobrazuje a
 |-------|--------|--------------|
 | `1` | **Defender + ASR** | ASR pravidla (14x), PUA, CFA, Tamper Protection, Real-Time + Cloud ochrana |
 | `2` | **SmartScreen** | SmartScreen pro Explorer i Microsoft Edge |
-| `3` | **Síť** | Windows Firewall, RDP, SMBv1, LLMNR |
+| `3` | **Síť** | Windows Firewall, RDP, SMBv1, LLMNR, WPAD |
 | `4` | **Systém + Logování** | AutoRun, PowerShell Script Block Logging |
 | `5` | **Sysmon** | Instalace/odinstalace Sysmon64, pokročilá konfigurace, plánovaná údržba |
-| `6` | **Bezpečné DNS** | Cloudflare 1.1.1.1 (Malware), 1.1.1.2 (Malware+Dospělý obsah) |
+| `6` | **Bezpečné DNS** | Cloudflare DNS profily a volitelné nativní DNS-over-HTTPS |
 | `7` | **Další doporučení** | LM hash, Sticky Keys, BitLocker návod |
 | `8` | **Aktualizace + Software** | Windows Update, Winget — přehled, kontrola, instalace |
 | `9` | **Pokročilé zabezpečení** | WDigest, LSA PPL, Network Protection, NetBIOS, NTLMv2, WSH, UAC, Event log velikosti, Remote Registry, Secure Boot (info), VBS/HVCI (info) |
@@ -317,6 +411,10 @@ Interaktivní menu s hierarchickým systémem podmenu. Každá volba zobrazuje a
 
 Interaktivní monitorovací nástroj pro zjišťování bezpečnostních událostí, analýzu procesů a detekci hrozeb.
 
+Volba Cloudflare DoH mění DNS servery aktivních adaptérů na Cloudflare malware filtr a zakáže návrat k nešifrovanému UDP. Pokud síť nebo Windows DoH nepodporují, DNS může přestat fungovat; změna vyžaduje výslovné zadání `YES`. PowerShell 2.0 lze v doplňkovém menu zakázat nebo znovu povolit a změna může vyžadovat restart.
+
+Audit asociací skriptů pouze zobrazuje nastavení a otevře stránku Výchozí aplikace Windows. Windows může asociaci chránit volbou `UserChoice`, proto ji skript násilně nepřepisuje. Inventář rozšíření Chrome/Edge slouží k ruční kontrole a nedokáže potvrdit podpis ani důvěryhodnost rozšíření. Stínové kopie VSS nejsou náhradou nezávislé offline zálohy; dodržujte pravidlo 3-2-1.
+
 ### Podmenu
 
 | Volba | Oblast | Co zobrazuje |
@@ -325,8 +423,9 @@ Interaktivní monitorovací nástroj pro zjišťování bezpečnostních událos
 | `2` | **Procesy** | Všechny procesy (top 30 / kompletní), nepodepsané a podezřelé procesy, **procesy ze podezřelých cest** (Temp/AppData/Downloads/Public) |
 | `3` | **Síť** | Otevřené porty (LISTENING), aktivní spojení (ESTABLISHED), **DNS cache** — filtruje bezpečné domény, zvýrazňuje TTL < 300s |
 | `4` | **Skriptovací procesy** | PowerShell, CMD, WMI procesy, **podezřelé parent-child vztahy** (Sysmon ID 1) — winword→PS, excel→cmd, mshta→PS atd. |
-| `5` | **Systém a správa** | Naplánované úlohy (jen non-Microsoft), služby (běžící/zastavené), uživatelé, skupiny, startup programy |
+| `5` | **Systém a správa** | Naplánované úlohy (jen non-Microsoft), služby (běžící/zastavené), uživatelé, skupiny, startup programy, **výjimky Defenderu**, **audit HOSTS** |
 | `6` | **Historie a detekce** | Script Block Logging (4104), Process Creation (4688), Sysmon (ID 1), WMI Persistence |
+| `7` | **Doplňkové kontroly domácího PC** | Administrátorská práva, PowerShell 2.0, inventář rozšíření, asociace skriptů, VSS a zálohy |
 | `9` | **Rychlý přehled** | Dashboard — stav Defenderu, Sysmon, Secure Boot, otevřené porty, poslední selhání přihlášení, 24h statistiky |
 | `E` | **Export dat** | Uloží výstup všech monitorovacích funkcí do `Desktop\MonitorReport_YYYYMMDD_HHMMSS.txt` |
 

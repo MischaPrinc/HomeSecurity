@@ -1,15 +1,15 @@
-﻿<#
+<#
 .SYNOPSIS
     PC Security Suite - Komplexni nastroj pro zabezpeceni domaciho PC s Windows 10/11.
 .DESCRIPTION
     Integruje tri moduly v jednom skriptu:
       - Modul 1: Zabezpeceni (Hardening)
-          ASR pravidla, Defender, SmartScreen, Firewall, Sysmon, DNS,
+          ASR pravidla, Defender, SmartScreen, Firewall, Sysmon, DNS/DoH,
           LSA PPL, WDigest, NTLMv2, NetBIOS, WSH, UAC, Event log velikost,
           Windows Update, Winget aktualizace, BitLocker a dalsi...
       - Modul 2: Monitoring a Audit
           Security events, failed/successful logons, kriticke udalosti,
-          persistence mechanismy, suspektni procesy, DNS cache, Sysmon
+          persistence mechanismy, suspektni procesy, DNS cache, domaci PC kontroly, Sysmon
           parent-child detekce, export dat, PowerShell/CMD/WMI monitoring...
       - Modul 3: Application Whitelisting (WDAC + Makra)
           WDAC politiky (audit/enforce), vlastni pravidla, WDAC Wizard,
@@ -42,6 +42,72 @@ $script:ActiveMode = ""
 
 # QuickNav: fronta automaticky predvolenych voleb (x-kod navigace)
 $script:QNPath = @()
+
+# QuickNav: vyjimka pro okamzite odvinuti volaciho zasobniku (call stack) do hlavni smycky
+class QuickNavJumpException : System.Exception {
+    [string]$Target
+    QuickNavJumpException([string]$t) { $this.Target = $t }
+}
+
+function Resolve-QuickNavPath {
+    param([string]$Code)
+    if ([string]::IsNullOrWhiteSpace($Code)) { return $null }
+    $c = $Code.Trim()
+    
+    # x0, x00, x000, x0000, 0000 -> Navrat do hlavniho menu (Root) / Konec
+    if ($c -match '^[xX]?0+$') { return @() }
+    
+    # Prime volby pro Modul 1
+    if ($c -match '^[xX]10?10$' -or $c -match '^[xX]10$') { return @('1', '10') }
+    if ($c -match '^[xX]10?99$' -or $c -match '^[xX]99$') { return @('1', '99') }
+
+    # Prime volby pro Modul 2 (Dashboard, Export)
+    if ($c -match '^[xX]20*9$') { return @('2', '9') }
+    if ($c -match '^[xX]20*[eE]$') { return @('2', 'E') }
+
+    # Prime volby pro Modul 3
+    if ($c -match '^[xX]30*4$') { return @('3', '4') }
+    if ($c -match '^[xX]30*99$') { return @('3', '99') }
+
+    # Modul 2 s podmenu a volbou: x2{pod}{vol} napr. x211, x214, x265, x266, x2101
+    if ($c -match '^[xX]2([1-7])0*([1-8])$') {
+        return @('2', $Matches[1], [string][int]$Matches[2])
+    }
+    # Modul 2 otevreni podmenu: x21..x27
+    if ($c -match '^[xX]2([1-7])$') {
+        return @('2', $Matches[1])
+    }
+
+    # Modul 1 nebo 3: 4-mistny kod s nulou u jednociferne volby e.g. x1102, x1903, x3101
+    if ($c -match '^[xX]([13])([1-9])0([1-9])$') {
+        return @($Matches[1], $Matches[2], $Matches[3])
+    }
+
+    # Modul 1 nebo 3: 4-mistny kod s dvoucifernou volbou (10-21) e.g. x1110..x1117, x1910..x1921, x3110..x3116, x3210..x3211
+    if ($c -match '^[xX]([13])([1-9])([12][0-9])$') {
+        return @($Matches[1], $Matches[2], $Matches[3])
+    }
+
+    # Modul 1 nebo 3: 3-mistny kod x{M}{S}{O} e.g. x112, x193, x311, x322
+    if ($c -match '^[xX]([13])([1-9])([1-9])$') {
+        return @($Matches[1], $Matches[2], $Matches[3])
+    }
+
+    # Modul 1 nebo 3: otevreni podmenu napr. x11..x19, x31..x33
+    if ($c -match '^[xX]1([1-9])$') {
+        return @('1', $Matches[1])
+    }
+    if ($c -match '^[xX]3([1-3])$') {
+        return @('3', $Matches[1])
+    }
+
+    # Pouze modul: x1, x2, x3
+    if ($c -match '^[xX]([123])$') {
+        return @($Matches[1])
+    }
+
+    return $null
+}
 
 # ==============================================================================
 #                   P O M O C N E   F U N K C E   ( S D I L E N E )
@@ -86,7 +152,7 @@ function Pause-Menu {
     Read-Host "Stiskni Enter pro pokracovani"
 }
 
-# QuickNav: pokud je QNPath neprazdna, vezme prvni prvek; jinak standardni Read-Host
+# QuickNav: pokud je QNPath neprazdna, vezme prvni prvek; jinak standardni Read-Host s podporou globalnich x-skoku
 function Read-MenuChoice {
     param([string]$Prompt = "  Vyberte volbu")
     if ($script:QNPath.Count -gt 0) {
@@ -97,7 +163,20 @@ function Read-MenuChoice {
         Write-Host "${Prompt}: $choice  [QuickNav]" -ForegroundColor DarkGray
         return $choice
     }
-    return Read-Host $Prompt
+    
+    $raw = Read-Host $Prompt
+    if ($raw -match '^[xX]' -or $raw -match '^0000$') {
+        $steps = Resolve-QuickNavPath -Code $raw
+        if ($steps -ne $null) {
+            $script:QNPath = $steps
+            throw [QuickNavJumpException]::new($raw)
+        } else {
+            Write-Host "  Neznamy nebo neplatny QuickNav kod: $raw" -ForegroundColor Red
+            Start-Sleep -Seconds 1
+            return ""
+        }
+    }
+    return $raw
 }
 
 function Show-Banner {
@@ -432,6 +511,34 @@ function Set-LLMNRState {
         $state = if ($Disabled) { "Zakazano" } else { "Povoleno" }
         Write-Host "  LLMNR: $state" -ForegroundColor Green
     } catch { Write-Host "  CHYBA: $_" -ForegroundColor Red }
+}
+
+function Get-WPADStatus {
+    try {
+        $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+        $val = (Get-ItemProperty -Path $regPath -Name "AutoDetect" -ErrorAction SilentlyContinue).AutoDetect
+        $wpadOvr = (Get-ItemProperty -Path "$regPath\Wpad" -Name "WpadOverride" -ErrorAction SilentlyContinue).WpadOverride
+        if ($val -eq 0 -or $wpadOvr -eq 1) { return "Zakazano (bezpecne)" }
+        return "Povoleno (vychozi - riziko)"
+    } catch { return "Neznamy" }
+}
+
+function Set-WPADState {
+    param([bool]$Disabled)
+    $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+    $wpadPath = "$regPath\Wpad"
+    try {
+        if (-not (Test-Path $wpadPath)) { New-Item -Path $wpadPath -Force | Out-Null }
+        if ($Disabled) {
+            Set-ItemProperty -Path $regPath -Name "AutoDetect" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $wpadPath -Name "WpadOverride" -Value 1 -Type DWord -ErrorAction Stop
+            Write-Host "  WPAD: Zakazano (ochrana pred podvrzenim proxy na lokalni siti)" -ForegroundColor Green
+        } else {
+            Set-ItemProperty -Path $regPath -Name "AutoDetect" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path $wpadPath -Name "WpadOverride" -ErrorAction SilentlyContinue
+            Write-Host "  WPAD: Povoleno" -ForegroundColor Yellow
+        }
+    } catch { Write-Host "  CHYBA pri nastaveni WPAD: $_" -ForegroundColor Red }
 }
 
 # ==============================================================================
@@ -980,10 +1087,11 @@ function Set-SecureDNS {
     }
     foreach ($adapter in $adapters) {
         try {
-            Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses @($prof.Primary, $prof.Secondary) -AddressFamily IPv4 -ErrorAction Stop
+            $addresses = @($prof.Primary, $prof.Secondary)
             if ($prof.PrimaryIPv6) {
-                Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses @($prof.PrimaryIPv6, $prof.SecondaryIPv6) -AddressFamily IPv6 -ErrorAction Stop
+                $addresses += @($prof.PrimaryIPv6, $prof.SecondaryIPv6)
             }
+            Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $addresses -ErrorAction Stop
             Write-Host "    [OK] $($adapter.Name)" -ForegroundColor Green
         } catch {
             Write-Host "    [CHYBA] $($adapter.Name): $_" -ForegroundColor Red
@@ -1009,6 +1117,79 @@ function Reset-DNS {
         }
     }
     Write-Host "  Hotovo." -ForegroundColor Green
+}
+
+function Show-DNSDoHStatus {
+    Write-Header "DNS-over-HTTPS (DoH)"
+    $getCommand = Get-Command Get-DnsClientDohServerAddress -ErrorAction SilentlyContinue
+    if (-not $getCommand) {
+        Write-Host "  Tento Windows nema dostupny prikaz pro kontrolu DoH konfigurace." -ForegroundColor Yellow
+        return
+    }
+
+    try {
+        $servers = @(Get-DnsClientDohServerAddress -ErrorAction Stop)
+        if ($servers.Count -eq 0) {
+            Write-Host "  Nejsou nakonfigurovane zadne DoH servery." -ForegroundColor Yellow
+            return
+        }
+        $servers | Sort-Object ServerAddress | ForEach-Object {
+            $autoUpgrade = if ($_.AutoUpgrade) { "zapnuto" } else { "vypnuto" }
+            $fallback = if ($_.AllowFallbackToUdp) { "povoleno" } else { "zakazano" }
+            Write-Host "  $($_.ServerAddress) -> $($_.DohTemplate)" -ForegroundColor Cyan
+            Write-Host "    Automaticky DoH: $autoUpgrade | navrat na UDP: $fallback" -ForegroundColor DarkGray
+        }
+    } catch {
+        Write-Host "  CHYBA pri cteni DoH konfigurace: $_" -ForegroundColor Red
+    }
+}
+
+function Enable-CloudflareDoH {
+    Write-Header "Nastaveni Cloudflare DNS-over-HTTPS"
+    Write-Host "  Nastaveni zmeni DNS na aktivnich sitovych adapterech na Cloudflare" -ForegroundColor Yellow
+    Write-Host "  malware filtr a zakaze navrat k nezasifrovanemu DNS pres UDP." -ForegroundColor Yellow
+    Write-Host "  Na nepodporovane verzi Windows nebo siti muze DNS prestat fungovat." -ForegroundColor Yellow
+    Write-Host ""
+    $confirmation = Read-Host "  Pro potvrzeni napis YES"
+    if ($confirmation -cne "YES") {
+        Write-Host "  Zmena zrusena." -ForegroundColor DarkGray
+        return
+    }
+
+    $addCommand = Get-Command Add-DnsClientDohServerAddress -ErrorAction SilentlyContinue
+    $getCommand = Get-Command Get-DnsClientDohServerAddress -ErrorAction SilentlyContinue
+    if (-not $addCommand -or -not $getCommand) {
+        Write-Host "  CHYBA: Tento Windows nepodporuje pozadovane DoH prikazy." -ForegroundColor Red
+        return
+    }
+
+    $template = "https://cloudflare-dns.com/dns-query"
+    $addresses = @(
+        "1.1.1.2", "1.0.0.2",
+        "2606:4700:4700::1112", "2606:4700:4700::1002"
+    )
+    try {
+        $existing = @(Get-DnsClientDohServerAddress -ErrorAction Stop)
+        foreach ($address in $addresses) {
+            $configured = $existing | Where-Object { $_.ServerAddress -eq $address } | Select-Object -First 1
+            if ($configured) {
+                if ($configured.DohTemplate -ne $template -or -not $configured.AutoUpgrade -or $configured.AllowFallbackToUdp) {
+                    Write-Host "  CHYBA: $address uz ma jinou nebo mene prisnou DoH konfiguraci; nemenim ji automaticky." -ForegroundColor Red
+                    return
+                }
+                continue
+            }
+            Add-DnsClientDohServerAddress -ServerAddress $address -DohTemplate $template `
+                -AutoUpgrade $true -AllowFallbackToUdp $false -ErrorAction Stop
+            Write-Host "  DoH nakonfigurovano pro $address" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  CHYBA pri konfiguraci DoH: $_" -ForegroundColor Red
+        return
+    }
+
+    Set-SecureDNS -ProfileKey "cloudflare_malware"
+    Write-Host "  Pro navrat pouzijte reset DNS na DHCP nebo jiny DNS profil." -ForegroundColor DarkGray
 }
 
 # ==============================================================================
@@ -1056,6 +1237,7 @@ function Show-FullStatus {
     $v = Get-RDPStatus;               Write-Status "Vzdalena plocha (RDP)"       $v (Get-StatusColor $v)
     $v = Get-SMBv1Status;             Write-Status "SMBv1 protokol"              $v (Get-StatusColor $v)
     $v = Get-LLMNRStatus;             Write-Status "LLMNR"                       $v (Get-StatusColor $v)
+    $v = Get-WPADStatus;              Write-Status "WPAD (Auto-Proxy)"           $v (Get-StatusColor $v)
 
     Write-Host ""
     Write-Host "  -- SYSTEM a LOGGING -----------------------------------------------" -ForegroundColor Magenta
@@ -1101,6 +1283,14 @@ function Show-FullStatus {
 function Enable-MaxSecurity {
     Write-Header "Zapinam MAXIMUM zabezpeceni"
     Write-Host ""
+    try {
+        Write-Host "  Vytvarim Bod obnovy systemu (Restore Point) pro pripad potreby vraceni zmen..." -ForegroundColor Yellow
+        Checkpoint-Computer -Description "Pred Zapnutim Vseho (PC Security Suite)" -RestorePointType "MODIFY_SETTINGS" -ErrorAction Stop
+        Write-Host "  Bod obnovy uspesne vytvoren." -ForegroundColor Green
+    } catch {
+        Write-Host "  Bod obnovy se nepodarilo vytvorit (Ochrana systemu muze byt vypnuta na disku C:)." -ForegroundColor DarkGray
+    }
+    Write-Host ""
     Set-AllASR -Mode 1
     Set-PUA -Mode 1
     Set-DefenderRT -Enabled $true
@@ -1120,6 +1310,7 @@ function Enable-MaxSecurity {
     Set-RDPState -Disabled $true
     Set-SMBv1State -Enabled $false
     Set-LLMNRState -Disabled $true
+    Set-WPADState -Disabled $true
     Set-AutoRunState -Disabled $true
     Set-PSLogging -Enabled $true
     Set-SecureDNS -ProfileKey "cloudflare_malware"
@@ -2155,9 +2346,10 @@ function Show-Menu-Network {
         $rdpSt   = Get-RDPStatus
         $smbSt   = Get-SMBv1Status
         $llmnrSt = Get-LLMNRStatus
+        $wpadSt  = Get-WPADStatus
         Write-Host "  Aktualni stav:" -ForegroundColor DarkGray
         Write-Host "    Firewall: $fwSt" -ForegroundColor DarkGray
-        Write-Host "    RDP: $rdpSt | SMBv1: $smbSt | LLMNR: $llmnrSt" -ForegroundColor DarkGray
+        Write-Host "    RDP: $rdpSt | SMBv1: $smbSt | LLMNR: $llmnrSt | WPAD: $wpadSt" -ForegroundColor DarkGray
         Write-Host ""
 
         Write-MenuItem "1" "Windows Firewall -> ZAPNOUT [DOPORUCENO]" Green
@@ -2172,6 +2364,9 @@ function Show-Menu-Network {
         Write-MenuItem "7" "LLMNR -> ZAKAZAT [DOPORUCENO]" Green
         Write-MenuItem "8" "LLMNR -> POVOLIT"
         Write-Host ""
+        Write-MenuItem "9" "WPAD (Auto-Discovery Proxy) -> ZAKAZAT [DOPORUCENO]" Green
+        Write-MenuItem "10" "WPAD -> POVOLIT"
+        Write-Host ""
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
 
@@ -2185,6 +2380,8 @@ function Show-Menu-Network {
             "6" { Set-SMBv1State -Enabled $true; Pause-Menu }
             "7" { Set-LLMNRState -Disabled $true; Pause-Menu }
             "8" { Set-LLMNRState -Disabled $false; Pause-Menu }
+            "9" { Set-WPADState -Disabled $true; Pause-Menu }
+            "10" { Set-WPADState -Disabled $false; Pause-Menu }
             "0" { return }
             default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
         }
@@ -2290,6 +2487,8 @@ function Show-Menu-DNS {
         Write-MenuItem "4" "Cloudflare 1.1.1.1 / 1.0.0.1 - Standardni (bez filtrace)"
         Write-Host ""
         Write-MenuItem "5" "Resetovat DNS na automaticke (DHCP)" Yellow
+        Write-MenuItem "6" "Zobrazit konfiguraci DNS-over-HTTPS (DoH)"
+        Write-MenuItem "7" "Nastavit Cloudflare DoH (vyzaduje potvrzeni)" Green
         Write-Host ""
         Write-MenuItem "0" "<- Zpet do hlavniho menu" Yellow
         Write-Host ""
@@ -2301,6 +2500,8 @@ function Show-Menu-DNS {
             "3" { Set-SecureDNS -ProfileKey "cloudflare_family"; Pause-Menu }
             "4" { Set-SecureDNS -ProfileKey "cloudflare_standard"; Pause-Menu }
             "5" { Reset-DNS; Pause-Menu }
+            "6" { Show-DNSDoHStatus; Pause-Menu }
+            "7" { Enable-CloudflareDoH; Pause-Menu }
             "0" { return }
             default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep 1 }
         }
@@ -3586,6 +3787,232 @@ function Show-StoppedServices {
     }
 }
 
+function Show-AdminAccountAudit {
+    Write-Header "Kontrola administratorskych prav aktualniho uctu"
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object -TypeName Security.Principal.WindowsPrincipal -ArgumentList $identity
+    $isAdministrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+    Write-Host "  Aktualni ucet: $($identity.Name)" -ForegroundColor White
+    if ($isAdministrator) {
+        Write-Host "  Ucet je clenem administratorske skupiny." -ForegroundColor Red
+        Write-Host "  Pro bezne brouzdani pouzivejte samostatny standardni ucet." -ForegroundColor Yellow
+    } else {
+        Write-Host "  Aktualni ucet nema administratorska prava." -ForegroundColor Green
+    }
+    Write-Host "  Poznamka: kontrola ukazuje aktualni ucet, ne to, ktery ucet pouzivate denne." -ForegroundColor DarkGray
+}
+
+function Get-PowerShellV2Features {
+    $featureNames = @("MicrosoftWindowsPowerShellV2", "MicrosoftWindowsPowerShellV2Root")
+    $getFeature = Get-Command Get-WindowsOptionalFeature -ErrorAction SilentlyContinue
+    if (-not $getFeature) {
+        throw "DISM prikaz Get-WindowsOptionalFeature neni dostupny."
+    }
+    return @(Get-WindowsOptionalFeature -Online -ErrorAction Stop |
+        Where-Object { $_.FeatureName -in $featureNames })
+}
+
+function Show-PowerShellV2Status {
+    Write-Header "Stav volitelne funkce Windows PowerShell 2.0"
+    try {
+        $features = @(Get-PowerShellV2Features)
+        if ($features.Count -eq 0) {
+            Write-Host "  PowerShell 2.0 neni v teto edici Windows dostupny." -ForegroundColor Green
+            return
+        }
+        if ($Enabled) {
+            $features = @($features | Sort-Object { if ($_.FeatureName -like "*Root") { 0 } else { 1 } })
+        } else {
+            $features = @($features | Sort-Object { if ($_.FeatureName -like "*Root") { 1 } else { 0 } })
+        }
+        foreach ($feature in $features) {
+            $color = if ($feature.State -eq "Enabled") { "Red" } else { "Green" }
+            Write-Host "  $($feature.FeatureName): $($feature.State)" -ForegroundColor $color
+        }
+        Write-Host "  Zmena stavu muze vyzadovat restart." -ForegroundColor DarkGray
+    } catch {
+        Write-Host "  CHYBA pri zjistovani stavu PowerShell 2.0: $_" -ForegroundColor Red
+    }
+}
+
+function Set-PowerShellV2State {
+    param([bool]$Enabled)
+    $action = if ($Enabled) { "Enable" } else { "Disable" }
+    try {
+        $features = @(Get-PowerShellV2Features)
+        if ($features.Count -eq 0) {
+            Write-Host "  PowerShell 2.0 neni v teto edici Windows dostupny." -ForegroundColor Green
+            return
+        }
+        foreach ($feature in $features) {
+            if ($Enabled -and $feature.State -eq "Enabled") {
+                Write-Host "  $($feature.FeatureName) uz je povolena." -ForegroundColor DarkGray
+                continue
+            }
+            if (-not $Enabled -and $feature.State -ne "Enabled") {
+                Write-Host "  $($feature.FeatureName) uz neni povolena." -ForegroundColor DarkGray
+                continue
+            }
+            $commandName = "${action}-WindowsOptionalFeature"
+            $result = & $commandName -Online -FeatureName $feature.FeatureName -NoRestart -ErrorAction Stop
+            Write-Host "  $($feature.FeatureName): $($result.State)" -ForegroundColor Green
+        }
+        Write-Host "  Zmena stavu muze vyzadovat restart." -ForegroundColor Yellow
+    } catch {
+        Write-Host "  CHYBA pri zmene stavu PowerShell 2.0: $_" -ForegroundColor Red
+    }
+}
+
+function Show-ScriptFileAssociationAudit {
+    Write-Header "Asociace skriptovych souboru"
+    foreach ($extension in @(".vbs", ".js", ".hta", ".wsf")) {
+        $extensionKey = "Registry::HKEY_CLASSES_ROOT\$extension"
+        $userChoiceKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$extension\UserChoice"
+        $progId = $null
+        $userChoice = $null
+        try {
+            if (Test-Path $extensionKey) {
+                $progId = (Get-Item -LiteralPath $extensionKey -ErrorAction Stop).GetValue("")
+            }
+            if (Test-Path $userChoiceKey) {
+                $userChoice = (Get-ItemProperty -LiteralPath $userChoiceKey -Name ProgId -ErrorAction Stop).ProgId
+            }
+            $effectiveProgId = if ($userChoice) { $userChoice } else { $progId }
+            $command = $null
+            if ($effectiveProgId) {
+                $commandKey = "Registry::HKEY_CLASSES_ROOT\$effectiveProgId\shell\open\command"
+                if (Test-Path $commandKey) {
+                    $command = (Get-Item -LiteralPath $commandKey -ErrorAction Stop).GetValue("")
+                }
+            }
+            Write-Host "  $extension -> $(if ($effectiveProgId) { $effectiveProgId } else { 'neni nastaveno' })" -ForegroundColor Cyan
+            if ($command) { Write-Host "    Prikaz: $command" -ForegroundColor Gray }
+            if ($userChoice) { Write-Host "    Chranena volba Windows (UserChoice) muze prebit vychozi asociaci." -ForegroundColor DarkGray }
+        } catch {
+            Write-Host "  CHYBA pri cteni asociace $extension : $_" -ForegroundColor Red
+        }
+    }
+    Write-Host ""
+    Write-Host "  Windows muze chranit vychozi aplikaci pomoci UserChoice; skript ji nasilne nemeni." -ForegroundColor Yellow
+    Write-Host "  Pro bezpecne otevreni vyberte Poznamkovy blok v Nastaveni > Aplikace > Vychozi aplikace." -ForegroundColor DarkGray
+}
+
+function Show-BrowserExtensionAudit {
+    Write-Header "Prehled rozsireni Chrome a Edge"
+    $browserRoots = @(
+        @{ Name = "Google Chrome"; Path = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data" },
+        @{ Name = "Microsoft Edge"; Path = Join-Path $env:LOCALAPPDATA "Microsoft\Edge\User Data" }
+    )
+    $found = $false
+    foreach ($browser in $browserRoots) {
+        if (-not (Test-Path -LiteralPath $browser.Path)) { continue }
+        try {
+            $profiles = @(Get-ChildItem -LiteralPath $browser.Path -Directory -ErrorAction Stop |
+                Where-Object { $_.Name -eq "Default" -or $_.Name -like "Profile *" })
+        } catch {
+            Write-Host "  CHYBA pri cteni profilu $($browser.Name): $_" -ForegroundColor Red
+            continue
+        }
+        foreach ($profile in $profiles) {
+            $extensionRoot = Join-Path $profile.FullName "Extensions"
+            if (-not (Test-Path -LiteralPath $extensionRoot)) { continue }
+            try {
+                $manifests = @(Get-ChildItem -LiteralPath $extensionRoot -Filter "manifest.json" -File -Recurse -ErrorAction Stop)
+            } catch {
+                Write-Host "  CHYBA pri prohledavani $extensionRoot : $_" -ForegroundColor Red
+                continue
+            }
+            foreach ($manifestFile in $manifests) {
+                $found = $true
+                try {
+                    $manifest = Get-Content -LiteralPath $manifestFile.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                    $name = if ($manifest.name -and $manifest.name -notmatch '^__MSG_') { $manifest.name } else { Split-Path (Split-Path $manifestFile.DirectoryName -Parent) -Leaf }
+                    Write-Host "  $($browser.Name) / $($profile.Name): $name v$($manifest.version)" -ForegroundColor Cyan
+                    Write-Host "    ID/cesta: $($manifestFile.Directory.Parent.Name) | $($manifestFile.DirectoryName)" -ForegroundColor Gray
+                } catch {
+                    Write-Host "  CHYBA pri cteni manifestu '$($manifestFile.FullName)': $_" -ForegroundColor Red
+                }
+            }
+        }
+    }
+    if (-not $found) {
+        Write-Host "  Nebyla nalezena zadna rozsireni v profilech Chrome nebo Edge." -ForegroundColor Yellow
+    }
+    Write-Host ""
+    Write-Host "  Jde o inventar, ne overeni podpisu ani duveryhodnosti. Neznama rozsireni overte v nastaveni prohlizece." -ForegroundColor Yellow
+}
+
+function Show-BackupAndVssAudit {
+    Write-Header "Kontrola zaloh a stinovych kopii"
+    try {
+        $vss = Get-Service -Name VSS -ErrorAction Stop
+        Write-Host "  Sluzba Volume Shadow Copy: $($vss.Status) (spousti se podle potreby)" -ForegroundColor Cyan
+    } catch {
+        Write-Host "  CHYBA pri zjistovani sluzby Volume Shadow Copy: $_" -ForegroundColor Red
+    }
+
+    $vssadmin = Get-Command vssadmin.exe -ErrorAction SilentlyContinue
+    if (-not $vssadmin) {
+        Write-Host "  CHYBA: vssadmin.exe neni dostupny; stav stinovych kopii nelze overit." -ForegroundColor Red
+    } else {
+        $vssArguments = @(
+            @("list", "shadows"),
+            @("list", "shadowstorage")
+        )
+        foreach ($arguments in $vssArguments) {
+            $argumentLabel = $arguments -join " "
+            Write-Host ""
+            Write-Host "  vssadmin $argumentLabel" -ForegroundColor DarkGray
+            try {
+                $output = & $vssadmin.Source @arguments 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "  CHYBA: vssadmin skoncil s kodem $LASTEXITCODE." -ForegroundColor Red
+                }
+                if ($output) { $output | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray } }
+                else { Write-Host "  Prikaz nevratil zadny vystup." -ForegroundColor Yellow }
+            } catch {
+                Write-Host "  CHYBA pri spusteni vssadmin: $_" -ForegroundColor Red
+            }
+        }
+    }
+    Write-Host ""
+    Write-Host "  3-2-1: 3 kopie dat, 2 ruzna media, 1 kopie offline nebo mimo domov." -ForegroundColor Yellow
+    Write-Host "  Stinove kopie nejsou nahradou nezavisle offline zalohy." -ForegroundColor DarkGray
+}
+
+function Show-Menu-HomePC {
+    do {
+        Show-Banner
+        Write-Header "Doplnkove kontroly domaciho PC"
+        Write-MenuItem "1" "Kontrola administratorskych prav aktualniho uctu"
+        Write-MenuItem "2" "Stav volitelne funkce PowerShell 2.0"
+        Write-MenuItem "3" "Zakazat PowerShell 2.0 (muze vyzadovat restart)" Green
+        Write-MenuItem "4" "Povolit PowerShell 2.0 (kompatibilita)" Yellow
+        Write-MenuItem "5" "Prehled rozsireni Chrome a Edge"
+        Write-MenuItem "6" "Audit asociaci .vbs/.js/.hta/.wsf"
+        Write-MenuItem "7" "Otevrit nastaveni vychozich aplikaci"
+        Write-MenuItem "8" "Kontrola VSS a pruvodce zalohami"
+        Write-Host ""
+        Write-MenuItem "0" "Zpet do hlavniho menu" -Color Yellow
+        Write-Host ""
+
+        $choice = Read-MenuChoice
+        switch ($choice) {
+            "1" { Show-AdminAccountAudit; Pause-Menu }
+            "2" { Show-PowerShellV2Status; Pause-Menu }
+            "3" { Set-PowerShellV2State -Enabled $false; Pause-Menu }
+            "4" { Set-PowerShellV2State -Enabled $true; Pause-Menu }
+            "5" { Show-BrowserExtensionAudit; Pause-Menu }
+            "6" { Show-ScriptFileAssociationAudit; Pause-Menu }
+            "7" { Start-Process "ms-settings:defaultapps"; Pause-Menu }
+            "8" { Show-BackupAndVssAudit; Pause-Menu }
+            "0" { return }
+            default { Write-Host "  Neplatna volba." -ForegroundColor Red; Start-Sleep -Seconds 1 }
+        }
+    } while ($true)
+}
+
 function Show-Users {
     Write-Header "Lokalni uzivatele"
     Write-Host "  Seznam lokalniŃh uzivatelu:" -ForegroundColor Yellow
@@ -3693,6 +4120,77 @@ function Show-StartupPrograms {
         
     } catch {
         Write-Host "  CHYBA: Nelze nacist startovaci programy. $_" -ForegroundColor Red
+    }
+}
+
+function Show-DefenderExclusions {
+    Write-Header "Windows Defender - Kontrola bezpecnostnich vyjimek (Exclusions)"
+    Write-Host "  Malware casto pridava slozky/pripony do vyjimek, aby se vyhnul detekci." -ForegroundColor DarkGray
+    Write-Host ""
+    try {
+        $pref = Get-MpPreference -ErrorAction Stop
+        $paths = @($pref.ExclusionPath)
+        $exts  = @($pref.ExclusionExtension)
+        $procs = @($pref.ExclusionProcess)
+
+        $found = $false
+        if ($paths.Count -gt 0) {
+            $found = $true
+            Write-Host "  Vyloucene cesty (ExclusionPath):" -ForegroundColor Yellow
+            foreach ($p in $paths) {
+                $color = if ($p -match '^[a-zA-Z]:\\?$|Users|AppData|Temp|Downloads') { 'Red' } else { 'Yellow' }
+                Write-Host "    - $p" -ForegroundColor $color
+            }
+        }
+        if ($exts.Count -gt 0) {
+            $found = $true
+            Write-Host "  Vyloucene pripony (ExclusionExtension):" -ForegroundColor Yellow
+            foreach ($e in $exts) {
+                Write-Host "    - $e" -ForegroundColor Red
+            }
+        }
+        if ($procs.Count -gt 0) {
+            $found = $true
+            Write-Host "  Vyloucene procesy (ExclusionProcess):" -ForegroundColor Yellow
+            foreach ($pr in $procs) {
+                Write-Host "    - $pr" -ForegroundColor Red
+            }
+        }
+
+        if (-not $found) {
+            Write-Host "  Zadne vyjimky v Defenderu nenalezeny. Antivir kontroluje cely system!" -ForegroundColor Green
+        } else {
+            Write-Host ""
+            Write-Host "  POZOR: Pokud jste tyto vyjimky nezadali vy, muze se jednat o cinnost malwaru!" -ForegroundColor Red
+        }
+    } catch {
+        Write-Host "  Nelze precist konfiguraci Defenderu: $_" -ForegroundColor Red
+    }
+}
+
+function Show-HostsFileAudit {
+    Write-Header "Audit souboru HOSTS"
+    $hostsPath = "$env:windir\System32\drivers\etc\hosts"
+    Write-Host "  Kontroluji soubor: $hostsPath" -ForegroundColor DarkGray
+    Write-Host ""
+    if (-not (Test-Path $hostsPath)) {
+        Write-Host "  Soubor HOSTS neexistuje." -ForegroundColor Yellow
+        return
+    }
+    try {
+        $lines = @(Get-Content $hostsPath | Where-Object { $_.Trim() -ne "" -and -not $_.Trim().StartsWith("#") })
+        if ($lines.Count -gt 0) {
+            Write-Host "  Nalezeny aktivni zaznamy v souboru HOSTS ($($lines.Count)):" -ForegroundColor Yellow
+            foreach ($l in $lines) {
+                Write-Host "    $l" -ForegroundColor Red
+            }
+            Write-Host ""
+            Write-Host "  VAROVANI: Pokud jste tyto zaznamy nevytvorili rucne, zkontrolujte, zda nedochazi k presmerovani!" -ForegroundColor Red
+        } else {
+            Write-Host "  Soubor HOSTS je cisty (obsahuje pouze vychozi komentare)." -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  CHYBA pri cteni souboru HOSTS: $_" -ForegroundColor Red
     }
 }
 
@@ -4167,6 +4665,8 @@ function Show-Menu-MonSystem {
         Write-MenuItem "4" "Lokalni uzivatele"
         Write-MenuItem "5" "Lokalni skupiny a clenove"
         Write-MenuItem "6" "Programy spoustene pri startu"
+        Write-MenuItem "7" "Windows Defender - Vyjimky z kontroly (Exclusions)" Yellow
+        Write-MenuItem "8" "Audit souboru HOSTS (kontrola presmerovani)" Yellow
         Write-Host ""
         Write-MenuItem "0" "Zpet do hlavniho menu" -Color Yellow
         Write-Host ""
@@ -4180,6 +4680,8 @@ function Show-Menu-MonSystem {
             "4" { Show-Users; Pause-Menu }
             "5" { Show-LocalGroups; Pause-Menu }
             "6" { Show-StartupPrograms; Pause-Menu }
+            "7" { Show-DefenderExclusions; Pause-Menu }
+            "8" { Show-HostsFileAudit; Pause-Menu }
             "0" { return }
             default {
                 Write-Host "  Neplatna volba, zkuste znovu." -ForegroundColor Red
@@ -4255,6 +4757,10 @@ function Show-QuickOverview {
         $sbColor = if ($sb -eq $true) { 'Green' } else { 'Yellow' }
         Write-Host "    Secure Boot: $sbLabel" -ForegroundColor $sbColor
     } catch { }
+    $currentPrincipal = New-Object -TypeName Security.Principal.WindowsPrincipal -ArgumentList ([Security.Principal.WindowsIdentity]::GetCurrent())
+    if ($currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Write-Host "    Aktualni ucet: Administratorska prava - pro bezne pouziti doporucen standardni ucet" -ForegroundColor Yellow
+    }
     Write-Host ""
 
     # Bezpecnost
@@ -4286,6 +4792,30 @@ function Show-QuickOverview {
     if ($logCleared -gt 0) {
         Write-Host "    [!!!] SECURITY LOG BYL VYMAZAN!" -ForegroundColor Red
     }
+
+    # Defender vyjimky (Exclusions)
+    try {
+        $mpPref = Get-MpPreference -ErrorAction SilentlyContinue
+        $exclTotal = @($mpPref.ExclusionPath).Count + @($mpPref.ExclusionExtension).Count + @($mpPref.ExclusionProcess).Count
+        if ($exclTotal -gt 0) {
+            Write-Host "    [!] Defender vyjimky:   $exclTotal VYJIMEK!" -ForegroundColor Yellow
+        } else {
+            Write-Host "    Defender vyjimky:   Zadna (cisto)" -ForegroundColor Green
+        }
+    } catch { }
+
+    # HOSTS soubor
+    try {
+        $hostsP = "$env:windir\System32\drivers\etc\hosts"
+        if (Test-Path $hostsP) {
+            $hLines = @(Get-Content $hostsP | Where-Object { $_.Trim() -ne "" -and -not $_.Trim().StartsWith("#") })
+            if ($hLines.Count -gt 0) {
+                Write-Host "    [!] HOSTS soubor:       $($hLines.Count) aktivnich zaznamu!" -ForegroundColor Yellow
+            } else {
+                Write-Host "    HOSTS soubor:       Cisty" -ForegroundColor Green
+            }
+        }
+    } catch { }
     Write-Host ""
 
     # Procesy
@@ -4335,6 +4865,7 @@ do {
     Write-MenuItem "4" "Skriptovaci Procesy (PowerShell/CMD/WMI)"
     Write-MenuItem "5" "System a Sprava (Services/Tasks/Users)"
     Write-MenuItem "6" "Historie Prikazu a Detekce Hrozeb" -Color Red
+    Write-MenuItem "7" "Doplnkove kontroly domaciho PC"
     Write-Host ""
     Write-MenuItem "9" "Rychly prehled systemu" -Color Cyan
     Write-MenuItem "E" "Export vsech dat do souboru (Desktop)" -Color Magenta
@@ -4350,6 +4881,7 @@ do {
         "4" { Show-Menu-Scripting }
         "5" { Show-Menu-MonSystem }
         "6" { Show-Menu-CommandHistory }
+        "7" { Show-Menu-HomePC }
         "9" { Show-QuickOverview; Pause-Menu }
         { $_ -in @("E","e") } { Export-MonitorResults; Pause-Menu }
         "0" {
@@ -6150,82 +6682,91 @@ do {
 #   H L A V N I   V Y B E R   M O D U L U   ( P C   S E C U R I T Y   S U I T E )
 # ==============================================================================
 do {
-    Clear-Host
-    Write-Host ""
-    Write-Host "  +============================================================+" -ForegroundColor Cyan
-    Write-Host "  |         PC SECURITY SUITE - Interaktivni nastroj           |" -ForegroundColor Cyan
-    Write-Host "  |                   vytvoril: Mischa Princ                   |" -ForegroundColor DarkCyan
-    Write-Host "  +============================================================+" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  Vyberte modul ktery chcete pouzit:" -ForegroundColor White
-    Write-Host ""
-    Write-Host "    1)  Zabezpeceni (Hardening)" -ForegroundColor Green
-    Write-Host "        ASR, Defender, SmartScreen, Sysmon, DNS, pokrocile zabezpeceni," -ForegroundColor DarkGray
-    Write-Host "        Windows Update, Winget, BitLocker, WDigest, LSA, NTLMv2, UAC..." -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "    2)  Monitoring a Audit" -ForegroundColor Yellow
-    Write-Host "        Security events, persistence, procesy, sit, DNS cache," -ForegroundColor DarkGray
-    Write-Host "        Sysmon parent-child detekce, export dat, detekce hrozeb..." -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "    3)  Application Whitelisting (WDAC + Makra)" -ForegroundColor Cyan
-    Write-Host "        WDAC politiky (audit/enforce), vlastni pravidla, Office makra," -ForegroundColor DarkGray
-    Write-Host "        Trusted Locations/Publishers, PS Constrained Mode..." -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "    x)  QuickNav  (x1{pod}{vol} / x2{vol} / x3{pod}{vol})" -ForegroundColor DarkGray
-    Write-Host "        Priklad: x1411 = Modul1 podmenu4 volba11  |  x193 = Modul1 pod9 volba3" -ForegroundColor DarkGray
-    Write-Host "                 x26   = Modul2 volba6            |  x312 = Modul3 WDAC volba2" -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "    0)  Konec" -ForegroundColor Yellow
-    Write-Host ""
+    if ($script:QNPath.Count -gt 0) {
+        $suiteChoice = $script:QNPath[0]
+        $script:QNPath = if ($script:QNPath.Count -gt 1) {
+            $script:QNPath[1..($script:QNPath.Count - 1)]
+        } else { @() }
+        Write-Host "  Vyberte modul (nebo x-kod): $suiteChoice  [QuickNav]" -ForegroundColor DarkGray
+    } else {
+        Clear-Host
+        Write-Host ""
+        Write-Host "  +============================================================+" -ForegroundColor Cyan
+        Write-Host "  |         PC SECURITY SUITE - Interaktivni nastroj           |" -ForegroundColor Cyan
+        Write-Host "  |                   vytvoril: Mischa Princ                   |" -ForegroundColor DarkCyan
+        Write-Host "  +============================================================+" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "  Vyberte modul ktery chcete pouzit:" -ForegroundColor White
+        Write-Host ""
+        Write-Host "    1)  Zabezpeceni (Hardening)" -ForegroundColor Green
+        Write-Host "        ASR, Defender, SmartScreen, Sysmon, DNS, pokrocile zabezpeceni," -ForegroundColor DarkGray
+        Write-Host "        Windows Update, Winget, BitLocker, WDigest, LSA, NTLMv2, UAC..." -ForegroundColor DarkGray
+        Write-Host ""
+        Write-Host "    2)  Monitoring a Audit" -ForegroundColor Yellow
+        Write-Host "        Security events, persistence, procesy, sit, DNS cache," -ForegroundColor DarkGray
+        Write-Host "        Sysmon parent-child detekce, export dat, detekce hrozeb..." -ForegroundColor DarkGray
+        Write-Host ""
+        Write-Host "    3)  Application Whitelisting (WDAC + Makra)" -ForegroundColor Cyan
+        Write-Host "        WDAC politiky (audit/enforce), vlastni pravidla, Office makra," -ForegroundColor DarkGray
+        Write-Host "        Trusted Locations/Publishers, PS Constrained Mode..." -ForegroundColor DarkGray
+        Write-Host ""
+        Write-Host "    x)  QuickNav  (x{modul}{podmenu}{volba} | x0000 = Reset do menu)" -ForegroundColor DarkGray
+        Write-Host "        Priklad: x193  = LSA PPL           |  x112 = ASR blokovat vse" -ForegroundColor DarkGray
+        Write-Host "                 x211  = Failed logons     |  x265 = Podezrele procesy" -ForegroundColor DarkGray
+        Write-Host "                 x0000 = Navrat do hlavniho menu odkudkoliv" -ForegroundColor DarkGray
+        Write-Host ""
+        Write-Host "    0)  Konec" -ForegroundColor Yellow
+        Write-Host ""
 
-    $suiteChoice = Read-Host "  Vyberte modul (nebo x-kod)"
+        $suiteChoice = Read-Host "  Vyberte modul (nebo x-kod)"
 
-    # --- QuickNav parser: x{modul}{podmenu}{volba} ---
-    if ($suiteChoice -match '^[xX]([123])(.+)$') {
-        $qMod  = $Matches[1]
-        $qRest = $Matches[2]
-        $script:QNPath = @()
-        switch ($qMod) {
-            "2" {
-                # Modul 2 nema podmenu: x2{volba}
-                $script:QNPath = @($qRest)
-            }
-            default {
-                # Modul 1 a 3: x{M}{podmenu:1}{volba:rest}
-                if ($qRest.Length -ge 2) {
-                    $script:QNPath = @([string]$qRest[0], $qRest.Substring(1))
+        if ($suiteChoice -match '^[xX]' -or $suiteChoice -match '^0000$') {
+            $steps = Resolve-QuickNavPath -Code $suiteChoice
+            if ($steps -ne $null) {
+                if ($steps.Count -eq 0) {
+                    # x0000 nebo x0 v hlavnim menu -> Konec
+                    $suiteChoice = "0"
                 } else {
-                    $script:QNPath = @($qRest)
+                    $suiteChoice = $steps[0]
+                    $script:QNPath = if ($steps.Count -gt 1) { $steps[1..($steps.Count - 1)] } else { @() }
                 }
+            } else {
+                Write-Host "  Neplatny QuickNav kod, zkuste znovu." -ForegroundColor Red
+                Start-Sleep -Seconds 1
+                continue
             }
         }
-        $suiteChoice = $qMod
     }
 
-    switch ($suiteChoice) {
-        "1" {
-            $script:ActiveMode = "SECURE"
-            Start-SecureMode
-            $script:ActiveMode = ""
+    try {
+        switch ($suiteChoice) {
+            "1" {
+                $script:ActiveMode = "SECURE"
+                Start-SecureMode
+                $script:ActiveMode = ""
+            }
+            "2" {
+                $script:ActiveMode = "MONITOR"
+                Start-MonitorMode
+                $script:ActiveMode = ""
+            }
+            "3" {
+                $script:ActiveMode = "APPLOCKER"
+                Start-AppLockerMode
+                $script:ActiveMode = ""
+            }
+            "0" {
+                Write-Host ""
+                Write-Host "  Ukoncuji PC Security Suite. Zustan v bezpeci!" -ForegroundColor Cyan
+                Write-Host ""
+            }
+            default {
+                Write-Host "  Neplatna volba, zkuste znovu." -ForegroundColor Red
+                Start-Sleep -Seconds 1
+            }
         }
-        "2" {
-            $script:ActiveMode = "MONITOR"
-            Start-MonitorMode
-            $script:ActiveMode = ""
-        }
-        "3" {
-            $script:ActiveMode = "APPLOCKER"
-            Start-AppLockerMode
-            $script:ActiveMode = ""
-        }
-        "0" {
-            Write-Host ""
-            Write-Host "  Ukoncuji PC Security Suite. Zustan v bezpeci!" -ForegroundColor Cyan
-            Write-Host ""
-        }
-        default {
-            Write-Host "  Neplatna volba, zkuste znovu." -ForegroundColor Red
-            Start-Sleep -Seconds 1
-        }
+    } catch [QuickNavJumpException] {
+        $script:ActiveMode = ""
+        continue
     }
 } while ($suiteChoice -ne "0")
