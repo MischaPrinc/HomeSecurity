@@ -56,9 +56,12 @@ function Resolve-QuickNavPath {
     
     # x0, x00, x000, x0000, 0000 -> Navrat do hlavniho menu (Root) / Konec
     if ($c -match '^[xX]?0+$') { return @() }
+
+    # Prime volby pro One-Click Security: x4, x4000, x04, 4
+    if ($c -match '^[xX]?0*40*$') { return @('4') }
     
     # Prime volby pro Modul 1
-    if ($c -match '^[xX]10?10$' -or $c -match '^[xX]10$') { return @('1', '10') }
+    if ($c -match '^[xX]10?10$' -or $c -match '^[xX]10$') { return @('4') }
     if ($c -match '^[xX]10?99$' -or $c -match '^[xX]99$') { return @('1', '99') }
 
     # Prime volby pro Modul 2 (Dashboard, Export)
@@ -1145,15 +1148,18 @@ function Show-DNSDoHStatus {
 }
 
 function Enable-CloudflareDoH {
+    param([switch]$Force)
     Write-Header "Nastaveni Cloudflare DNS-over-HTTPS"
     Write-Host "  Nastaveni zmeni DNS na aktivnich sitovych adapterech na Cloudflare" -ForegroundColor Yellow
     Write-Host "  malware filtr a zakaze navrat k nezasifrovanemu DNS pres UDP." -ForegroundColor Yellow
     Write-Host "  Na nepodporovane verzi Windows nebo siti muze DNS prestat fungovat." -ForegroundColor Yellow
     Write-Host ""
-    $confirmation = Read-Host "  Pro potvrzeni napis YES"
-    if ($confirmation -cne "YES") {
-        Write-Host "  Zmena zrusena." -ForegroundColor DarkGray
-        return
+    if (-not $Force) {
+        $confirmation = Read-Host "  Pro potvrzeni napis YES"
+        if ($confirmation -cne "YES") {
+            Write-Host "  Zmena zrusena." -ForegroundColor DarkGray
+            return
+        }
     }
 
     $addCommand = Get-Command Add-DnsClientDohServerAddress -ErrorAction SilentlyContinue
@@ -1280,69 +1286,187 @@ function Show-FullStatus {
 }
 
 # ==============================================================================
-#           Z A P N O U T   V S E   N A   M A X I M U M
+#           O N E - C L I C K   S E C U R I T Y   ( Z A P N O U T   V S E )
 # ==============================================================================
-function Enable-MaxSecurity {
-    Write-Header "Zapinam MAXIMUM zabezpeceni"
-    Write-Host ""
+function Set-AdminSharesState {
+    param([bool]$Disabled)
+    $val = if ($Disabled) { 0 } else { 1 }
+    $desc = if ($Disabled) { "zakazuji skryta administrativni sdileni disku (C$, ADMIN$ - bezpecne pro domaci PC)" } else { "povoluji" }
+    Write-Host "  $desc..." -ForegroundColor DarkGray
     try {
-        Write-Host "  Vytvarim Bod obnovy systemu (Restore Point) pro pripad potreby vraceni zmen..." -ForegroundColor Yellow
-        Checkpoint-Computer -Description "Pred Zapnutim Vseho (PC Security Suite)" -RestorePointType "MODIFY_SETTINGS" -ErrorAction Stop
-        Write-Host "  Bod obnovy uspesne vytvoren." -ForegroundColor Green
+        $p = "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"
+        if (-not (Test-Path $p)) { New-Item -Path $p -Force | Out-Null }
+        Set-ItemProperty -Path $p -Name "AutoShareWks" -Value $val -Type DWord -ErrorAction Stop
+        Write-Host "    [OK] AutoShareWks = $val" -ForegroundColor Green
     } catch {
-        Write-Host "  Bod obnovy se nepodarilo vytvorit (Ochrana systemu muze byt vypnuta na disku C:)." -ForegroundColor DarkGray
+        Write-Host "    [CHYBA] Nelze nastavit AutoShareWks: $_" -ForegroundColor Red
+    }
+}
+
+function Set-AnonymousSAMRestriction {
+    param([bool]$Restricted)
+    $val = if ($Restricted) { 1 } else { 0 }
+    $desc = if ($Restricted) { "omezuji anonymni pristupy k SAM uctum a sdilenim v siti" } else { "povoluji" }
+    Write-Host "  $desc..." -ForegroundColor DarkGray
+    try {
+        $p = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
+        if (-not (Test-Path $p)) { New-Item -Path $p -Force | Out-Null }
+        Set-ItemProperty -Path $p -Name "RestrictAnonymous" -Value $val -Type DWord -ErrorAction Stop
+        Set-ItemProperty -Path $p -Name "RestrictAnonymousSAM" -Value $val -Type DWord -ErrorAction Stop
+        Write-Host "    [OK] RestrictAnonymous = $val, RestrictAnonymousSAM = $val" -ForegroundColor Green
+    } catch {
+        Write-Host "    [CHYBA] Nelze nastavit RestrictAnonymous: $_" -ForegroundColor Red
+    }
+}
+
+function Invoke-OneClickSecurity {
+    param([switch]$Force)
+    Write-Header "ONE-CLICK SECURITY - Komplexni zabezpeceni pocitace na 1 kliknuti"
+    Write-Host ""
+    Write-Host "  Tento rezim automaticky provede a sjednoti maximalni doporucene zabezpeceni:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  1. HARDENING:" -ForegroundColor Cyan
+    Write-Host "     - Defender, Real-time ochrana, PUA blokace, Defender Sandboxing, aktualizace signatur" -ForegroundColor Gray
+    Write-Host "     - ASR: vsech 16 Attack Surface Reduction pravidel nastaveno na Blokovat" -ForegroundColor Gray
+    Write-Host "     - Controlled Folder Access (ochrana slozek pred ransomwarem)" -ForegroundColor Gray
+    Write-Host "     - SmartScreen na maximum (vyzaduje admina) + Edge SmartScreen + UAC Secure Desktop" -ForegroundColor Gray
+    Write-Host "     - Sit: Windows Firewall zapnut, zakaz RDP, SMBv1, LLMNR, WPAD, NetBIOS over TCP/IP" -ForegroundColor Gray
+    Write-Host "     - Bezpecne DNS: Cloudflare malware filtr (1.1.1.2) + konfigurace DNS-over-HTTPS (DoH)" -ForegroundColor Gray
+    Write-Host "     - System: zakaz AutoRun, kompletni PowerShell Script Block Logging, zvetseni Event Logu" -ForegroundColor Gray
+    Write-Host "     - Pokrocila ochrana: WDigest (bez hesel v RAM), LSA PPL (ochrana pred Mimikatz)," -ForegroundColor Gray
+    Write-Host "       Network Protection (blokovat), NTLMv2 uroven 5, WSH zakazan, Remote Registry zakazana" -ForegroundColor Gray
+    Write-Host "     - Domaci sit: zakaz administrativnich sdileni (AutoShareWks) a anonymniho SAM dotazovani" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  2. MONITORING A AUDIT:" -ForegroundColor Cyan
+    Write-Host "     - Zranitelny PowerShell 2.0: zakazan (zabrani bypassu AMSI a logovani)" -ForegroundColor Gray
+    Write-Host "     - Audit rizikovych asociaci: overeni souboru .vbs, .js, .hta, .wsf" -ForegroundColor Gray
+    Write-Host "     - Kontrola Defender vyjimek a overeni integrity souboru HOSTS" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  3. APPLICATION WHITELISTING:" -ForegroundColor Cyan
+    Write-Host "     - Office makra: blokace stazenych maker z internetu a vynuceni POUZE digitalne podepsanych" -ForegroundColor Gray
+    Write-Host ""
+
+    if (-not $Force) {
+        $confirm = Read-Host "  Chcete nyni aplikovat vsechna tato zabezpeceni? (A/N)"
+        if ($confirm -notmatch '^[aAyY]') {
+            Write-Host "  Operace byla zrusena uzivatelem." -ForegroundColor Yellow
+            return
+        }
     }
     Write-Host ""
+
+    # [0/9] Vytvoreni bodu obnovy
+    Write-Host "  [0/9] Bod obnovy systemu (System Restore)..." -ForegroundColor Cyan
+    try {
+        Checkpoint-Computer -Description "Pred One-Click Security (PC Security Suite)" -RestorePointType "MODIFY_SETTINGS" -ErrorAction Stop
+        Write-Host "    [OK] Bod obnovy uspesne vytvoren." -ForegroundColor Green
+    } catch {
+        Write-Host "    Bod obnovy se nepodarilo vytvorit (Ochrana systemu muze byt vypnuta na disku C:)." -ForegroundColor DarkGray
+    }
+    Write-Host ""
+
+    # [1/9] Defender a ASR
+    Write-Host "  [1/9] Windows Defender a ASR pravidla..." -ForegroundColor Cyan
     Set-AllASR -Mode 1
     Set-PUA -Mode 1
     Set-DefenderRT -Enabled $true
     Set-CFA -Mode 1
-    # Tamper Protection - casto nelze menit pres registr, jen informujeme
+    Set-DefenderSandboxing -Enabled $true
+    Update-DefenderSignatures
     $tpSt = Get-TamperProtectionStatus
     if ($tpSt -eq "Zapnuto") {
-        Write-Host "  Tamper Protection: jiz Zapnuto" -ForegroundColor Green
+        Write-Host "    [OK] Tamper Protection: jiz Zapnuto" -ForegroundColor Green
     } else {
-        Write-Host "  Tamper Protection: Nelze nastavit skriptem - Windows ho chrani." -ForegroundColor Yellow
-        Write-Host "  -> Zapnete rucne: Windows Zabezpeceni > Ochrana pred viry > Nastaveni" -ForegroundColor Yellow
+        Write-Host "    [!] Tamper Protection: Nelze menit skriptem (chraneno OS) -> Zapnete rucne v Windows Zabezpeceni!" -ForegroundColor Yellow
     }
+    Write-Host ""
+
+    # [2/9] SmartScreen a UAC
+    Write-Host "  [2/9] SmartScreen a UAC..." -ForegroundColor Cyan
     Set-SmartScreen -Mode "RequireAdmin"
     Set-EdgeSmartScreen -Enabled $true
+    Set-UACLevel -Level 0
+    Write-Host ""
+
+    # [3/9] Sit, protokoly a DNS
+    Write-Host "  [3/9] Sitove protokoly a bezpecne DNS (DoH)..." -ForegroundColor Cyan
     Set-FirewallState -Enabled $true
-    Write-Host "  Vzdalena plocha (RDP): zakazuji (pro domaci PC doporuceno)..." -ForegroundColor DarkGray
     Set-RDPState -Disabled $true
     Set-SMBv1State -Enabled $false
     Set-LLMNRState -Disabled $true
     Set-WPADState -Disabled $true
+    Set-NetBIOSState -Disabled $true
+    Set-SecureDNS -ProfileKey "cloudflare_malware"
+    Enable-CloudflareDoH -Force
+    Write-Host ""
+
+    # [4/9] System a Logging
+    Write-Host "  [4/9] System a auditni logovani..." -ForegroundColor Cyan
     Set-AutoRunState -Disabled $true
     Set-PSLogging -Enabled $true
-    Set-SecureDNS -ProfileKey "cloudflare_malware"
+    Set-EventLogSize
+    Enable-LSARegistryAuditing
+    Write-Host ""
+
+    # [5/9] Ucty a hesla
+    Write-Host "  [5/9] Ucty, hesla a Sticky Keys..." -ForegroundColor Cyan
     Set-LMHashState -Disabled $true
     Set-StickyKeysState -Secured $true
-    # Nove: Office registry
     Set-OfficeSecurityRegistry
-    # Nove: Defender sandboxing
-    Set-DefenderSandboxing -Enabled $true
-    # Nove: Update Defender signatur
-    Update-DefenderSignatures
-    # Pokrocile zabezpeceni
-    Write-Host "  -- Pokrocile zabezpeceni --" -ForegroundColor DarkGray
+    Write-Host ""
+
+    # [6/9] Pokrocily hardening
+    Write-Host "  [6/9] Pokrocila ochrana (Mimikatz, NTLMv2, WSH)..." -ForegroundColor Cyan
     Set-WDigest -Disabled $true
     Set-LSAPPL -Enabled $true
     Set-NetworkProtection -Mode 1
-    Set-NetBIOSState -Disabled $true
     Set-NTLMLevel -Level 5
     Set-WSHState -Disabled $true
-    Set-UACLevel -Level 0
-    Set-EventLogSize
     Set-RemoteRegistryState -Disabled $true
     Write-Host ""
-    Write-Host "  *** Vse nastaveno na maximalni ochranu! ***" -ForegroundColor Green
+
+    # [7/9] Ochrana domaci site (LAN)
+    Write-Host "  [7/9] Ochrana domaci LAN site (Admin sdileni a SAM)..." -ForegroundColor Cyan
+    Set-AdminSharesState -Disabled $true
+    Set-AnonymousSAMRestriction -Restricted $true
     Write-Host ""
+
+    # [8/9] Monitoring a doplňkové kontroly PC
+    Write-Host "  [8/9] Zranitelne komponenty a asociace souboru..." -ForegroundColor Cyan
+    Set-PowerShellV2State -Enabled $false
+    Show-ScriptFileAssociationAudit
+    Write-Host ""
+
+    # [9/9] Application Whitelisting: Office makra
+    Write-Host "  [9/9] Whitelisting: Vynuceni podepsanych Office maker..." -ForegroundColor Cyan
+    Set-MacroPolicy -Level 3
+    Write-Host ""
+
+    Write-Host "  ============================================================" -ForegroundColor Cyan
+    Write-Host "  *** ONE-CLICK SECURITY USPESNE DOKONCENO! ***" -ForegroundColor Green
+    Write-Host "  ============================================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    # Bezpecnostni audit a overeni
+    Write-Host "  Bezpecnostni kontroly a doporuceni:" -ForegroundColor White
+    Show-DefenderExclusions
+    Show-HostsFileAudit
+
     $blSt = Get-BitLockerStatus
     if ($blSt -notmatch "Zapnuto") {
-        Write-Host "  DOPORUCENI: Nezapomente zapnout sifrovani disku BitLocker!" -ForegroundColor Yellow
-        Show-BitLockerHelp
+        Write-Host ""
+        Write-Host "  DOPORUCENI: Disk neni sifrovan BitLockerem!" -ForegroundColor Yellow
+        Write-Host "  Sifrovani chrani vase soubory pri fyzicke kradezi zarizeni." -ForegroundColor DarkGray
+        Write-Host "  Pro zapnuti vyhledejte 'BitLocker' v nabidce Start nebo spustte volbu v modulu Hardening." -ForegroundColor DarkGray
     }
+
+    Write-Host ""
+    Write-Host "  DOPORUCENI: Nektere zmeny (LSA PPL, PowerShell 2.0, UAC) vyzaduji RESTART PC." -ForegroundColor Yellow
+    Write-Host ""
+}
+
+function Enable-MaxSecurity {
+    Invoke-OneClickSecurity
 }
 function Set-OfficeSecurityRegistry {
     Write-Host "  Nastavuji registry pro zabezpeceni Office..." -ForegroundColor Yellow
@@ -2783,7 +2907,7 @@ do {
     }
     Write-Host ""
 
-    Write-Host "   10)  ZAPNOUT VSE (maximum zabezpeceni)" -ForegroundColor Green
+    Write-Host "   10)  ONE-CLICK SECURITY (ZAPNOUT VSE - maximum zabezpeceni)" -ForegroundColor Green
     Write-Host "   99)  Aktualni stav - kompletni prehled" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "    0)  Konec" -ForegroundColor Yellow
@@ -2801,7 +2925,7 @@ do {
         "7"  { Show-Menu-Hardening }
         "8"  { Show-Menu-UpdatesAndSoftware }
         "9"  { Show-Menu-Advanced }
-        "10" { Enable-MaxSecurity; Pause-Menu }
+        "10" { Invoke-OneClickSecurity; Pause-Menu }
         "99" { Show-FullStatus; Pause-Menu }
         "0"  {
             Write-Host ""
@@ -6923,8 +7047,12 @@ do {
         Write-Host "        WDAC politiky (audit/enforce), vlastni pravidla, Office makra," -ForegroundColor DarkGray
         Write-Host "        Trusted Locations/Publishers, PS Constrained Mode..." -ForegroundColor DarkGray
         Write-Host ""
+        Write-Host "    4)  ONE-CLICK SECURITY (Komplexni zabezpeceni na 1 kliknuti) [DOPORUCENO]" -ForegroundColor Green
+        Write-Host "        Aktivuje vsechna doporucena zabezpeceni napric vsemi 3 moduly zaraz:" -ForegroundColor DarkGray
+        Write-Host "        Hardening + Logging + DoH + PS v2 zakazan + Makra jen podepsana..." -ForegroundColor DarkGray
+        Write-Host ""
         Write-Host "    x)  QuickNav  (x{modul}{podmenu}{volba} | x0000 = Reset do menu)" -ForegroundColor DarkGray
-        Write-Host "        Priklad: x193  = LSA PPL           |  x112 = ASR blokovat vse" -ForegroundColor DarkGray
+        Write-Host "        Priklad: x4    = One-Click Security|  x112 = ASR blokovat vse" -ForegroundColor DarkGray
         Write-Host "                 x211  = Failed logons     |  x265 = Podezrele procesy" -ForegroundColor DarkGray
         Write-Host "                 x0000 = Navrat do hlavniho menu odkudkoliv" -ForegroundColor DarkGray
         Write-Host ""
@@ -6967,6 +7095,10 @@ do {
                 $script:ActiveMode = "APPLOCKER"
                 Start-AppLockerMode
                 $script:ActiveMode = ""
+            }
+            "4" {
+                Invoke-OneClickSecurity
+                Pause-Menu
             }
             "0" {
                 Write-Host ""

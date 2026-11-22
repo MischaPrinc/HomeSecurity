@@ -30,6 +30,7 @@ Po spuštění se zobrazí hlavní výběr modulu:
     1)  Zabezpeceni (Hardening)
     2)  Monitoring a Audit
     3)  Application Whitelisting (WDAC + Makra)
+    4)  ONE-CLICK SECURITY (Komplexni zabezpeceni na 1 kliknuti) [DOPORUCENO]
 
     0)  Konec
 ```
@@ -94,7 +95,8 @@ x{modul}{podmenu}{volba}
 **Příklady:**
 ```
 x0000   → Reset do hlavního výběru modulů odkudkoliv
-x10     → Modul 1: ZAPNOUT VŠE (Maximum zabezpečení) s vytvořením bodu obnovy
+x4      → ONE-CLICK SECURITY: Komplexní zabezpečení PC na 1 kliknutí odkudkoliv ✅
+x10     → ZAPNOUT VŠE (Maximum zabezpečení) s vytvořením bodu obnovy
 x199    → Modul 1: Kompletní přehled stavu
 x193    → Modul 1, podmenu 9 (Pokročilé), volba 3 → Zapnout LSA PPL
 x112    → Modul 1, podmenu 1 (Defender+ASR), volba 2 → ASR BLOKOVAT [DOPORUČENO]
@@ -112,11 +114,12 @@ Po provedení volby se skript zastaví v příslušném podmenu pro další inte
 
 ---
 
-### Modul 1 — Zabezpečení: rychlokódy
+### Hlavní menu a Modul 1 — rychlokódy
 
 | Kód | Akce |
 |-----|------|
-| `x10` / `x110` | **ZAPNOUT VŠE (Maximum zabezpečení)** — vytvoří Bod obnovy a aplikuje doporučená nastavení ✅ |
+| `x4` / `x4000` | **ONE-CLICK SECURITY** — komplexní zabezpečení PC na 1 kliknutí (Hardening + DoH + PS v2 + Makra + Bod obnovy) ✅ |
+| `x10` / `x110` | **ZAPNOUT VŠE (Maximum zabezpečení)** — totéž jako One-Click Security ✅ |
 | `x99` / `x199` | **Kompletní přehled stavu zabezpečení** |
 
 #### Podmenu 1 — Defender + ASR (`x11...`)
@@ -375,6 +378,26 @@ Po provedení volby se skript zastaví v příslušném podmenu pro další inte
 |-----|------|
 | `x331` | PS Constrained Language Mode — ZAPNOUT |
 | `x332` | PS Constrained Language Mode — VYPNOUT |
+
+---
+
+## ONE-CLICK SECURITY (Komplexní zabezpečení na 1 kliknutí)
+
+Dostupné přímo z hlavního rozcestníku jako **volba `4`** nebo rychlým kódem **`x4`** (případně `x10`) odkudkoliv.
+
+Tento režim automaticky a bezpečně sjednotí veškeré doporučené bezpečnostní nastavení napříč celým operačním systémem:
+
+1. **Automatický bod obnovy (System Restore Point):** Před jakýmkoliv zásahem vytvoří bod obnovy pro případ potřeby návratu.
+2. **Defender a ASR (Attack Surface Reduction):** Všech 16 ASR pravidel na Blokovat, PUA blokace, Real-Time ochrana, Controlled Folder Access (ochrana složek před ransomwarem), Defender v izolovaném sandboxu, aktualizace virových signatur.
+3. **SmartScreen a UAC:** SmartScreen na maximum (vyžaduje admina), Edge SmartScreen, UAC na maximum (Secure Desktop).
+4. **Síť, protokoly a bezpečné DNS:** Windows Firewall zapnut na všech 3 profilech, zákaz vzdálené plochy RDP, zákaz zranitelného SMBv1, zákaz LLMNR a WPAD (ochrana před Responder a proxy útoky), zákaz NetBIOS over TCP/IP, Cloudflare malware filtr (`1.1.1.2`) a konfigurace šifrovaného DNS-over-HTTPS (DoH).
+5. **Systém a logování:** Zákaz AutoRun/AutoPlay z vyměnitelných médií, kompletní PowerShell Script Block Logging, Module Logging a Transcription, zvětšení kapacity Event Logů (512 MB Security) a auditování LSA registru.
+6. **Účty a hesla:** Zákaz ukládání LM hashů, zabezpečení Sticky Keys proti debugger backdooru na přihlašovací obrazovce.
+7. **Pokročilé zabezpečení:** Zákaz WDigest (žádná hesla v plaintextu v paměti LSASS), LSA Protection (LSA PPL proti Mimikatz dumpování), Network Protection v režimu Blokovat, NTLMv2 úroveň 5, zákaz Windows Script Host (blokace spouštění `.vbs` a `.js`), zákaz služby Remote Registry.
+8. **Ochrana domácí sítě (LAN):** Zákaz skrytých administrativních sdílení (`AutoShareWks = 0` — blokace `C$`, `ADMIN$`) a zákaz anonymního dotazování SAM účtů a sdílení po síti (`RestrictAnonymous = 1`).
+9. **Monitoring a zranitelné komponenty:** Zákaz zastaralého PowerShell 2.0 (který by umožnil útočníkům obejít AMSI a logování) a audit skriptových asociací `.vbs`, `.js`, `.hta`, `.wsf`.
+10. **Application Whitelisting (Office makra):** Blokace maker stažených z internetu (Mark of the Web) a vynucení POUZE digitálně podepsaných maker od důvěryhodného vydavatele.
+11. **Bezpečnostní audity po dokončení:** Zobrazení kontroly nebezpečných výjimek Defenderu, integrity souboru `HOSTS` a doporučení pro šifrování BitLocker.
 
 ---
 
